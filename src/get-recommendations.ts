@@ -1,34 +1,31 @@
 import type { Product } from './types/product'
 import { aggregateProducts } from './aggregate-products'
-import { MOCK_PRODUCTS } from './lib/mockProducts'
+
+const DEFAULT_QUERY = 'sustainable secondhand vintage clothing'
 
 /** @expose */
 export async function getRecommendations(page: number = 0): Promise<Product[]> {
   const principal = getPrincipal()
 
-  // Find the user's Profile
   const profile = await db.Profile.findFirst({
     where: { user: { id: principal.id } },
   })
 
-  if (!profile) return MOCK_PRODUCTS.slice(page * 20, (page + 1) * 20)
+  // No profile yet — return a generic sustainable fashion query
+  if (!profile) {
+    return aggregateProducts({ query: DEFAULT_QUERY, page })
+  }
 
-  // Look up style preferences
   const prefs = await db.StylePreference.findFirst({
     where: { user: { id: profile.id } },
   })
 
-  // No preferences yet — return trending cached items
+  // No style preferences yet — generic query
   if (!prefs || prefs.style_tags.length === 0) {
-    const trending = await db.Product.findMany({
-      orderBy: { last_updated: 'desc' },
-      limit: 20,
-      offset: page * 20,
-    })
-    return trending.length > 0 ? (trending as Product[]) : MOCK_PRODUCTS.slice(page * 20, (page + 1) * 20)
+    return aggregateProducts({ query: DEFAULT_QUERY, page })
   }
 
-  // Build a search query from the user's style tags and occasions
+  // Build query from user's style tags + occasions
   const queryParts = [
     ...prefs.style_tags,
     ...prefs.occasions.map(o => `${o} outfit`),

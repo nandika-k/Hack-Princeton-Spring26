@@ -82,14 +82,13 @@ async function fetchDedalusBrandAudit(retailer: string, productTitle: string): P
   return res.json()
 }
 
-// ─── IFM K2-Think V2 ─────────────────────────────────────────
+// ─── IFM K2-Think ────────────────────────────────────────────
 // Model: https://huggingface.co/LLM360/K2-Think
 // 32B reasoning model (Qwen2.5-32B base) with extended chain-of-thought.
-// Served via Hugging Face Inference API by default; override with
-// IFM_API_URL env var to point at a self-hosted vLLM/Cerebras endpoint.
+// Served via self-hosted vLLM (Modal/Runpod/Cerebras) — OpenAI-compatible.
+// Set IFM_API_URL to your vLLM /v1/chat/completions endpoint.
 
 const K2_MODEL_ID = 'LLM360/K2-Think'
-const HF_INFERENCE_URL = `https://api-inference.huggingface.co/models/${K2_MODEL_ID}`
 
 type IFMInput = {
   title: string
@@ -109,7 +108,8 @@ type IFMOutput = {
 
 async function fetchIFMScore(input: IFMInput): Promise<IFMOutput> {
   const apiKey = process.env.IFM_API_KEY
-  const endpoint = process.env.IFM_API_URL ?? HF_INFERENCE_URL
+  const endpoint = process.env.IFM_API_URL
+  if (!endpoint) throw new Error('IFM_API_URL not set — point to vLLM /v1/chat/completions')
 
   const secondhandContext = input.isSecondhand
     ? 'This item is sold on a secondhand marketplace, which significantly reduces its carbon footprint compared to buying new.'
@@ -133,39 +133,34 @@ Brand sustainability rating: ${input.brandRating}
 Certifications: ${input.certifications.join(', ') || 'none found'}
 Brand notes: ${input.brandNotes || 'none'}`
 
+  // OpenAI-compatible chat completions (vLLM-served K2-Think)
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${apiKey ?? 'dummy'}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      inputs: [
+      model: K2_MODEL_ID,
+      messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      parameters: {
-        max_new_tokens: 2048,    // capped — K2-Think supports up to 32,768
-        temperature: 0.3,        // low variance for consistent scoring
-        return_full_text: false,
-      },
-      options: { wait_for_model: true },   // handles HF cold-start
+      max_tokens: 2048,
+      temperature: 0.3,
     }),
   })
 
   if (!res.ok) {
-    // Fallback score for secondhand vs new — keeps demo flowing if API is down
-    const fallbackScore = input.isSecondhand ? 65 : 35
-    return {
-      score: fallbackScore,
-      explanation: 'Score estimated based on retailer type.',
-      reasoning: 'IFM scoring unavailable — using retailer-type fallback.',
-    }
+    const body = await res.text().catch(() => '')
+    throw new Error(`K2-Think call failed (${res.status}): ${body.slice(0, 200)}`)
   }
 
   const data = await res.json()
-  const generated = Array.isArray(data) ? data[0]?.generated_text : data.generated_text
-  const parsed = extractTrailingJson(generated ?? '')
+  const content = data.choices?.[0]?.message?.content
+  if (!content) throw new Error('K2-Think response missing content')
+
+  const parsed = extractTrailingJson(content)
 
   return {
     score: parsed.score,
