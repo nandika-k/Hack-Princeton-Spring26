@@ -1,0 +1,130 @@
+// Sustainable Fashion Discovery Platform — Kizaki Schema
+// Run `kizaki compile` to validate syntax and generate TypeScript SDK.
+// Run `kizaki migrate plan` then `kizaki migrate apply` to push to DB.
+
+auth {
+  providers {
+    email {
+      verification: required
+      passwordPolicy {
+        minLength: 12
+        blockCommon: true
+      }
+    }
+    google {}
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Profile — one per auth user
+// ─────────────────────────────────────────────────────────────
+entity Profile {
+  id:           uuid        @primary @default(uuid())
+  user:         @auth.user  @unique
+  email:        text
+  display_name: text?
+  avatar_url:   text?
+  created_at:   timestamp   @default(now())
+
+  policy {
+    read:   principal == self.user
+    create: principal == self.user
+    update: principal == self.user
+    delete: principal == self.user
+  }
+
+  index { fields: [user] }
+}
+
+// ─────────────────────────────────────────────────────────────
+// StylePreference — style tags and occasions per user
+// ─────────────────────────────────────────────────────────────
+entity StylePreference {
+  id:          uuid       @primary @default(uuid())
+  user:        Profile    @relation
+  style_tags:  text[]     // e.g. ['Y2K', 'Vintage', 'Streetwear']
+  occasions:   text[]     // e.g. ['Prom', 'Everyday', 'Work']
+  style_text:  text?
+  created_at:  timestamp  @default(now())
+
+  policy {
+    read:   principal == self.user.user
+    create: principal == self.user.user
+    update: principal == self.user.user
+    delete: principal == self.user.user
+  }
+
+  index { fields: [user] }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Board — user-created pinning collections
+// ─────────────────────────────────────────────────────────────
+entity Board {
+  id:          uuid       @primary @default(uuid())
+  user:        Profile    @relation
+  name:        text
+  description: text?
+  occasion:    text?
+  created_at:  timestamp  @default(now())
+
+  policy {
+    read:   principal == self.user.user
+    create: principal == self.user.user
+    update: principal == self.user.user
+    delete: principal == self.user.user
+  }
+
+  index { fields: [user] }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Pin — saved product linked to a board
+// ─────────────────────────────────────────────────────────────
+entity Pin {
+  id:                  uuid       @primary @default(uuid())
+  user:                Profile    @relation
+  board:               Board      @relation
+  product_id:          text
+  product_data:        json
+  sustainability_score: int?
+  created_at:          timestamp  @default(now())
+
+  policy {
+    read:   principal == self.user.user
+    create: principal == self.user.user
+    update: principal == self.user.user
+    delete: principal == self.user.user
+  }
+
+  index { fields: [user] }
+  index { fields: [board] }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Product — Tavily result cache (avoid re-fetching)
+// Format: id = 'retailer:external_id'
+// ─────────────────────────────────────────────────────────────
+entity Product {
+  id:                   text       @primary
+  retailer:             text
+  title:                text
+  description:          text?
+  price:                decimal?
+  currency:             text?      @default("USD")
+  image_urls:           text[]
+  product_url:          text
+  sustainability_score: int?
+  score_explanation:    text?
+  metadata:             json?
+  last_updated:         timestamp  @default(now())
+
+  policy {
+    read:   public
+    create: server
+    update: server
+    delete: server
+  }
+
+  index { fields: [retailer] }
+}
