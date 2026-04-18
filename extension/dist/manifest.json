@@ -15,7 +15,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/content-script.ts-DdAtyjdA.js"
+        "assets/content-script.ts-BQoEJjEu.js"
       ],
       "matches": [
         "https://*.depop.com/*",
@@ -32,7 +32,8 @@
         "https://*.nordstrom.com/*",
         "https://*.revolve.com/*",
         "https://*.amazon.com/*",
-        "https://*.shopify.com/*"
+        "https://*.shopify.com/*",
+        "https://*.macys.com/*"
       ],
       "run_at": "document_idle"
     }
@@ -45,9 +46,6 @@
   "host_permissions": [
     "https://*/*"
   ],
-  "content_security_policy": {
-    "extension_pages": "script-src 'self' http://localhost:5173; object-src 'self'"
-  },
   "web_accessible_resources": [
     {
       "matches": [
@@ -56,6 +54,7 @@
         "https://*.depop.com/*",
         "https://*.ebay.com/*",
         "https://*.hm.com/*",
+        "https://*.macys.com/*",
         "https://*.nordstrom.com/*",
         "https://*.revolve.com/*",
         "https://*.shein.com/*",
@@ -68,8 +67,8 @@
         "https://*.zara.com/*"
       ],
       "resources": [
-        "assets/content-script.ts-DdAtyjdA.js",
-        "assets/content-script.ts-DdAtyjdA.js.map"
+        "assets/content-script.ts-BQoEJjEu.js",
+        "assets/content-script.ts-BQoEJjEu.js.map"
       ],
       "use_dynamic_url": false
     }
