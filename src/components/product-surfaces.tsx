@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { resolveProductLookupUrl } from '../lib/product-links'
 import type { Board, Pin } from '../types/board'
 import type { Product, SustainabilityResult } from '../types/product'
 
@@ -104,6 +105,7 @@ export function ProductDetailModal({
   const primaryImage = product.image_urls?.[0] ?? null
   const description = product.description ?? 'Description not available yet for this archived listing.'
   const priceLabel = formatPrice(product.price, product.currency)
+  const productLookupUrl = resolveProductLookupUrl(product)
 
   return (
     <ModalShell onClose={onClose}>
@@ -149,7 +151,7 @@ export function ProductDetailModal({
               <button className="btn-save btn-save-wide" onClick={onSave} type="button">
                 SAVE_IT
               </button>
-              <a className="btn-secondary" href={product.product_url} rel="noreferrer" target="_blank">
+              <a className="btn-secondary" href={productLookupUrl} rel="noreferrer" target="_blank">
                 OPEN
               </a>
             </div>
