@@ -1,6 +1,6 @@
 # Backend Setup — macOS Quick Start
 
-> For your teammate running the Kizaki backend on macOS. **Live data only** — no mock fallback.
+> For your teammate running the Kizaki backend on macOS. **Live-first** — real Tavily + K2-Think on the happy path, mock/heuristic fallback if upstream fails so the demo never breaks.
 
 ---
 
@@ -33,10 +33,21 @@ Backend files:
 ```
 schema/main.inspire              ← data model
 src/aggregate-products.ts        ← Tavily search (live)
-src/get-recommendations.ts       ← feed recommendations (live Tavily)
-src/calculate-sustainability.ts  ← Dedalus + K2-Think scoring (live)
+src/get-recommendations.ts       ← feed recs (live Tavily → mock fallback)
+src/calculate-sustainability.ts  ← Dedalus + K2-Think (live → heuristic fallback)
+src/lib/mockProducts.ts          ← fallback catalog (22 products)
 src/types/                       ← shared TypeScript types
 ```
+
+### Fallback behavior
+
+| Live service | Happy path | On failure |
+|---|---|---|
+| Tavily | 20 live products per page | `MOCK_PRODUCTS` slice |
+| K2-Think | 0–100 score + reasoning chain | secondhand→65, new→35, short explanation |
+| Dedalus | Brand rating + certifications | `{ brand_rating: 'unknown' }` (K2 still runs) |
+
+Failures are logged via `console.warn` and visible in `kizaki logs`. Nothing throws.
 
 ---
 

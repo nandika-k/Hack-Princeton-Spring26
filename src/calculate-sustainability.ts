@@ -109,7 +109,9 @@ type IFMOutput = {
 async function fetchIFMScore(input: IFMInput): Promise<IFMOutput> {
   const apiKey = process.env.IFM_API_KEY
   const endpoint = process.env.IFM_API_URL
-  if (!endpoint) throw new Error('IFM_API_URL not set — point to vLLM /v1/chat/completions')
+
+  // No IFM endpoint configured — use retailer-based heuristic fallback
+  if (!endpoint) return retailerFallback(input)
 
   const secondhandContext = input.isSecondhand
     ? 'This item is sold on a secondhand marketplace, which significantly reduces its carbon footprint compared to buying new.'
@@ -134,38 +136,57 @@ Certifications: ${input.certifications.join(', ') || 'none found'}
 Brand notes: ${input.brandNotes || 'none'}`
 
   // OpenAI-compatible chat completions (vLLM-served K2-Think)
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey ?? 'dummy'}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: K2_MODEL_ID,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      max_tokens: 2048,
-      temperature: 0.3,
-    }),
-  })
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey ?? 'dummy'}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: K2_MODEL_ID,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: 2048,
+        temperature: 0.3,
+      }),
+    })
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`K2-Think call failed (${res.status}): ${body.slice(0, 200)}`)
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      console.warn(`[IFM] K2-Think ${res.status}: ${body.slice(0, 200)} — using fallback`)
+      return retailerFallback(input)
+    }
+
+    const data = await res.json()
+    const content = data.choices?.[0]?.message?.content
+    if (!content) {
+      console.warn('[IFM] K2-Think response missing content — using fallback')
+      return retailerFallback(input)
+    }
+
+    const parsed = extractTrailingJson(content)
+    return {
+      score: parsed.score,
+      explanation: parsed.explanation,
+      reasoning: parsed.reasoning ?? parsed.explanation,
+    }
+  } catch (err) {
+    console.warn('[IFM] K2-Think call errored — using fallback:', err)
+    return retailerFallback(input)
   }
+}
 
-  const data = await res.json()
-  const content = data.choices?.[0]?.message?.content
-  if (!content) throw new Error('K2-Think response missing content')
-
-  const parsed = extractTrailingJson(content)
-
+function retailerFallback(input: IFMInput): IFMOutput {
+  const score = input.isSecondhand ? 65 : 35
   return {
-    score: parsed.score,
-    explanation: parsed.explanation,
-    reasoning: parsed.reasoning ?? parsed.explanation,
+    score,
+    explanation: input.isSecondhand
+      ? 'Secondhand item — estimated sustainability based on reuse.'
+      : 'New retail item — estimated sustainability based on category.',
+    reasoning: 'Live K2-Think scoring unavailable; score estimated from retailer type.',
   }
 }
 
