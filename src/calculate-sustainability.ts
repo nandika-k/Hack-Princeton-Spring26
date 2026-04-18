@@ -13,6 +13,7 @@ export async function calculateSustainability(productId: string): Promise<Sustai
     return {
       score: product.sustainability_score,
       explanation: product.score_explanation,
+      reasoning: product.score_explanation,
       comparison: buildComparison(product.sustainability_score),
     }
   }
@@ -43,6 +44,7 @@ export async function calculateSustainability(productId: string): Promise<Sustai
   return {
     score: ifmResult.score,
     explanation: ifmResult.explanation,
+    reasoning: ifmResult.reasoning,
     comparison: buildComparison(ifmResult.score),
   }
 }
@@ -80,7 +82,14 @@ async function fetchDedalusBrandAudit(retailer: string, productTitle: string): P
   return res.json()
 }
 
-// ─── IFM (K2 model) ──────────────────────────────────────────
+// ─── IFM K2-Think V2 ─────────────────────────────────────────
+// Model: https://huggingface.co/LLM360/K2-Think
+// 32B reasoning model (Qwen2.5-32B base) with extended chain-of-thought.
+// Served via Hugging Face Inference API by default; override with
+// IFM_API_URL env var to point at a self-hosted vLLM/Cerebras endpoint.
+
+const K2_MODEL_ID = 'LLM360/K2-Think'
+const HF_INFERENCE_URL = `https://api-inference.huggingface.co/models/${K2_MODEL_ID}`
 
 type IFMInput = {
   title: string
@@ -92,54 +101,87 @@ type IFMInput = {
   brandNotes: string
 }
 
-type IFMOutput = { score: number; explanation: string }
+type IFMOutput = {
+  score: number
+  explanation: string
+  reasoning: string
+}
 
 async function fetchIFMScore(input: IFMInput): Promise<IFMOutput> {
   const apiKey = process.env.IFM_API_KEY
+  const endpoint = process.env.IFM_API_URL ?? HF_INFERENCE_URL
 
   const secondhandContext = input.isSecondhand
     ? 'This item is sold on a secondhand marketplace, which significantly reduces its carbon footprint compared to buying new.'
     : ''
 
-  const prompt = `You are a sustainable fashion expert. Score the sustainability of this clothing item from 0 to 100.
-
-Product: ${input.title}
-Description: ${input.description}
-Retailer: ${input.retailer}
-${secondhandContext}
-Brand sustainability rating: ${input.brandRating}
-Certifications: ${input.certifications.join(', ') || 'none found'}
-Brand notes: ${input.brandNotes || 'none'}
+  const systemPrompt = `You are a sustainable fashion expert. Reason through the product's sustainability factors step by step, then output a final JSON verdict.
 
 Scoring guide:
 - 70-100: Highly sustainable (secondhand, strong ethical brand, certified materials)
 - 40-69: Moderately sustainable
 - 0-39: Low sustainability
 
-Respond with JSON only:
-{
-  "score": <integer 0-100>,
-  "explanation": "<one plain-English sentence explaining the score>"
-}`
+After your reasoning, output exactly one JSON object on its own line:
+{"score": <0-100>, "explanation": "<one-sentence summary for a product card>", "reasoning": "<2-3 sentence detail for the product modal>"}`
 
-  const res = await fetch('https://api.ifm.ai/v1/generate', {
+  const userPrompt = `Product: ${input.title}
+Description: ${input.description}
+Retailer: ${input.retailer}
+${secondhandContext}
+Brand sustainability rating: ${input.brandRating}
+Certifications: ${input.certifications.join(', ') || 'none found'}
+Brand notes: ${input.brandNotes || 'none'}`
+
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ model: 'k2', prompt, response_format: 'json' }),
+    body: JSON.stringify({
+      inputs: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      parameters: {
+        max_new_tokens: 2048,    // capped — K2-Think supports up to 32,768
+        temperature: 0.3,        // low variance for consistent scoring
+        return_full_text: false,
+      },
+      options: { wait_for_model: true },   // handles HF cold-start
+    }),
   })
 
   if (!res.ok) {
-    // Fallback score for secondhand vs new
+    // Fallback score for secondhand vs new — keeps demo flowing if API is down
     const fallbackScore = input.isSecondhand ? 65 : 35
-    return { score: fallbackScore, explanation: 'Score estimated based on retailer type.' }
+    return {
+      score: fallbackScore,
+      explanation: 'Score estimated based on retailer type.',
+      reasoning: 'IFM scoring unavailable — using retailer-type fallback.',
+    }
   }
 
   const data = await res.json()
-  const parsed = typeof data.content === 'string' ? JSON.parse(data.content) : data.content
-  return { score: parsed.score, explanation: parsed.explanation }
+  const generated = Array.isArray(data) ? data[0]?.generated_text : data.generated_text
+  const parsed = extractTrailingJson(generated ?? '')
+
+  return {
+    score: parsed.score,
+    explanation: parsed.explanation,
+    reasoning: parsed.reasoning ?? parsed.explanation,
+  }
+}
+
+// K2-Think emits long chain-of-thought before the JSON verdict. Grab the
+// last JSON object in the response.
+function extractTrailingJson(text: string): { score: number; explanation: string; reasoning?: string } {
+  const matches = text.match(/\{[^{}]*"score"[^{}]*\}/g)
+  if (!matches || matches.length === 0) {
+    throw new Error('K2-Think response missing JSON verdict')
+  }
+  return JSON.parse(matches[matches.length - 1])
 }
 
 // ─── Helpers ─────────────────────────────────────────────────
