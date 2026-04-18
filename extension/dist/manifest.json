@@ -1,0 +1,77 @@
+{
+  "manifest_version": 3,
+  "name": "ReWear — Sustainable Fashion Scanner",
+  "short_name": "ReWear",
+  "version": "0.1.0",
+  "description": "Check sustainability scores on any shopping site. See where your clothes are made, what they're made of, and their carbon footprint.",
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_title": "ReWear — Sustainability Scanner"
+  },
+  "background": {
+    "service_worker": "service-worker-loader.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "assets/content-script.ts-DdAtyjdA.js"
+      ],
+      "matches": [
+        "https://*.depop.com/*",
+        "https://*.vinted.com/*",
+        "https://*.ebay.com/*",
+        "https://*.thredup.com/*",
+        "https://*.vestiairecollective.com/*",
+        "https://*.whatnot.com/*",
+        "https://*.zara.com/*",
+        "https://*.hm.com/*",
+        "https://*.shein.com/*",
+        "https://*.asos.com/*",
+        "https://*.urbanoutfitters.com/*",
+        "https://*.nordstrom.com/*",
+        "https://*.revolve.com/*",
+        "https://*.amazon.com/*",
+        "https://*.shopify.com/*"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' http://localhost:5173; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "https://*.amazon.com/*",
+        "https://*.asos.com/*",
+        "https://*.depop.com/*",
+        "https://*.ebay.com/*",
+        "https://*.hm.com/*",
+        "https://*.nordstrom.com/*",
+        "https://*.revolve.com/*",
+        "https://*.shein.com/*",
+        "https://*.shopify.com/*",
+        "https://*.thredup.com/*",
+        "https://*.urbanoutfitters.com/*",
+        "https://*.vestiairecollective.com/*",
+        "https://*.vinted.com/*",
+        "https://*.whatnot.com/*",
+        "https://*.zara.com/*"
+      ],
+      "resources": [
+        "assets/content-script.ts-DdAtyjdA.js",
+        "assets/content-script.ts-DdAtyjdA.js.map"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
+}
