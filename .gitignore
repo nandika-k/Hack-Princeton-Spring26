@@ -1,3 +1,5 @@
 node_modules/
 .env.local
+.env
+photon-bot/.env
 supabase/functions/.env.local

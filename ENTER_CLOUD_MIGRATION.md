@@ -25,8 +25,9 @@ All tables have Row Level Security (RLS) enabled with proper access policies.
 ### API Secrets Configured
 - ✅ `TAVILY_API_KEY` - Product search API
 - ✅ `DEDALUS_API_KEY` - Brand sustainability audits
-- ✅ `IFM_API_URL` - K2-Think endpoint (set to your Modal deployment URL)
-- ✅ `IFM_API_KEY` - K2-Think auth (can be "dummy" for vLLM)
+- ✅ `IFM_API_URL` - K2-Think endpoint (HuggingFace Inference Endpoint `/v1/chat/completions`)
+- ✅ `IFM_API_KEY` - HuggingFace token
+- ✅ `IFM_MODEL_ID` - K2-Think v2 model ID (default: `LLM360/K2-Think-v2`)
 
 ---
 
@@ -65,6 +66,29 @@ const { data, error } = await supabase.functions.invoke('calculate-sustainabilit
 
 // Returns: { score, explanation, reasoning, comparison }
 ```
+
+**Photon AI — Analyze Tag Photo (in-store):**
+```typescript
+const { data, error } = await supabase.functions.invoke('analyze-tag', {
+  body: { imageUrl: 'https://...photo-of-tag.jpg' }
+})
+
+// Returns:
+// {
+//   extraction: { brand, materials, countryOfOrigin, careInstructions, rawText },
+//   score: 82,
+//   explanation: "Patagonia recycled fleece — high sustainability.",
+//   reasoning: "...",
+//   comparison: "saves ~25 kg CO₂ vs buying new",
+//   certifications: ["bluesign®", "Fair Trade"],
+//   brandRating: "great",
+//   formattedReply: "🌿 Sustainability Score: 82/100\n..."
+// }
+```
+
+For iMessage/SMS: configure Twilio webhook URL as
+`https://<project>.supabase.co/functions/v1/analyze-tag`
+The function auto-detects Twilio's `application/x-www-form-urlencoded` payload and replies with TwiML.
 
 ### 3. Database Operations
 

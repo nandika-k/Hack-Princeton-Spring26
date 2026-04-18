@@ -1,0 +1,22 @@
+-- Photon AI in-store tag scans (iMessage / SMS via Twilio)
+-- Records each clothing tag photo analyzed by Claude Vision + K2-Think.
+
+CREATE TABLE tag_scans (
+  id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  image_url            TEXT NOT NULL,
+  phone_number         TEXT,
+  extracted_brand      TEXT,
+  extracted_materials  TEXT[] DEFAULT '{}',
+  country_of_origin    TEXT,
+  sustainability_score INTEGER CHECK (sustainability_score BETWEEN 0 AND 100),
+  score_explanation    TEXT,
+  created_at           TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- Server-only access (service role key required)
+ALTER TABLE tag_scans ENABLE ROW LEVEL SECURITY;
+
+-- No user-facing policies — all access via service role in edge function
+CREATE INDEX tag_scans_phone_number_idx ON tag_scans (phone_number);
+CREATE INDEX tag_scans_extracted_brand_idx ON tag_scans (extracted_brand);
+CREATE INDEX tag_scans_created_at_idx ON tag_scans (created_at DESC);
