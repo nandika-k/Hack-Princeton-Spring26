@@ -3109,7 +3109,189 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      boards: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          occasion: string | null
+          profile_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          occasion?: string | null
+          profile_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          occasion?: string | null
+          profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "boards_profile_id_fkey"
+            columns: ["profile_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pins: {
+        Row: {
+          board_id: string
+          created_at: string
+          id: string
+          product_data: Json
+          product_id: string
+          profile_id: string
+          sustainability_score: number | null
+        }
+        Insert: {
+          board_id: string
+          created_at?: string
+          id?: string
+          product_data: Json
+          product_id: string
+          profile_id: string
+          sustainability_score?: number | null
+        }
+        Update: {
+          board_id?: string
+          created_at?: string
+          id?: string
+          product_data?: Json
+          product_id?: string
+          profile_id?: string
+          sustainability_score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pins_board_id_fkey"
+            columns: ["board_id"]
+            referencedRelation: "boards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pins_profile_id_fkey"
+            columns: ["profile_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          currency: string | null
+          description: string | null
+          id: string
+          image_urls: string[] | null
+          last_updated: string
+          metadata: Json | null
+          price: number | null
+          product_url: string
+          retailer: string
+          score_explanation: string | null
+          sustainability_score: number | null
+          title: string
+        }
+        Insert: {
+          currency?: string | null
+          description?: string | null
+          id: string
+          image_urls?: string[] | null
+          last_updated?: string
+          metadata?: Json | null
+          price?: number | null
+          product_url: string
+          retailer: string
+          score_explanation?: string | null
+          sustainability_score?: number | null
+          title: string
+        }
+        Update: {
+          currency?: string | null
+          description?: string | null
+          id?: string
+          image_urls?: string[] | null
+          last_updated?: string
+          metadata?: Json | null
+          price?: number | null
+          product_url?: string
+          retailer?: string
+          score_explanation?: string | null
+          sustainability_score?: number | null
+          title?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          email: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          email: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          email?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      style_preferences: {
+        Row: {
+          created_at: string
+          id: string
+          occasions: string[] | null
+          profile_id: string
+          style_tags: string[] | null
+          style_text: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          occasions?: string[] | null
+          profile_id: string
+          style_tags?: string[] | null
+          style_text?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          occasions?: string[] | null
+          profile_id?: string
+          style_tags?: string[] | null
+          style_text?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "style_preferences_profile_id_fkey"
+            columns: ["profile_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

@@ -1,0 +1,188 @@
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Profiles table (one per auth user)
+CREATE TABLE profiles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE NOT NULL,
+  email TEXT NOT NULL,
+  display_name TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- Enable RLS
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- Policies for profiles
+CREATE POLICY "Users can view own profile"
+  ON profiles FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own profile"
+  ON profiles FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own profile"
+  ON profiles FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own profile"
+  ON profiles FOR DELETE
+  USING (auth.uid() = user_id);
+
+-- Style preferences table
+CREATE TABLE style_preferences (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  profile_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  style_tags TEXT[] DEFAULT '{}',
+  occasions TEXT[] DEFAULT '{}',
+  style_text TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE style_preferences ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own style preferences"
+  ON style_preferences FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = style_preferences.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+CREATE POLICY "Users can insert own style preferences"
+  ON style_preferences FOR INSERT
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = style_preferences.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+CREATE POLICY "Users can update own style preferences"
+  ON style_preferences FOR UPDATE
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = style_preferences.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+CREATE POLICY "Users can delete own style preferences"
+  ON style_preferences FOR DELETE
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = style_preferences.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+-- Boards table
+CREATE TABLE boards (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  profile_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  occasion TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE boards ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own boards"
+  ON boards FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = boards.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+CREATE POLICY "Users can insert own boards"
+  ON boards FOR INSERT
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = boards.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+CREATE POLICY "Users can update own boards"
+  ON boards FOR UPDATE
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = boards.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+CREATE POLICY "Users can delete own boards"
+  ON boards FOR DELETE
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = boards.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+-- Pins table
+CREATE TABLE pins (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  profile_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  board_id UUID REFERENCES boards(id) ON DELETE CASCADE NOT NULL,
+  product_id TEXT NOT NULL,
+  product_data JSONB NOT NULL,
+  sustainability_score INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE pins ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own pins"
+  ON pins FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = pins.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+CREATE POLICY "Users can insert own pins"
+  ON pins FOR INSERT
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = pins.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+CREATE POLICY "Users can update own pins"
+  ON pins FOR UPDATE
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = pins.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+CREATE POLICY "Users can delete own pins"
+  ON pins FOR DELETE
+  USING (EXISTS (
+    SELECT 1 FROM profiles WHERE profiles.id = pins.profile_id AND profiles.user_id = auth.uid()
+  ));
+
+-- Products table (public cache for Tavily results)
+CREATE TABLE products (
+  id TEXT PRIMARY KEY,
+  retailer TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  price DECIMAL,
+  currency TEXT DEFAULT 'USD',
+  image_urls TEXT[] DEFAULT '{}',
+  product_url TEXT NOT NULL,
+  sustainability_score INTEGER,
+  score_explanation TEXT,
+  metadata JSONB,
+  last_updated TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+
+-- Public read, server-only write for products cache
+CREATE POLICY "Products are publicly readable"
+  ON products FOR SELECT
+  USING (true);
+
+-- Create indexes
+CREATE INDEX idx_profiles_user_id ON profiles(user_id);
+CREATE INDEX idx_style_preferences_profile_id ON style_preferences(profile_id);
+CREATE INDEX idx_boards_profile_id ON boards(profile_id);
+CREATE INDEX idx_pins_profile_id ON pins(profile_id);
+CREATE INDEX idx_pins_board_id ON pins(board_id);
+CREATE INDEX idx_products_retailer ON products(retailer);
+CREATE INDEX idx_products_last_updated ON products(last_updated);
+
+-- Function to handle new user profile creation
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO profiles (user_id, email)
+  VALUES (NEW.id, NEW.email);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger to auto-create profile on signup
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
