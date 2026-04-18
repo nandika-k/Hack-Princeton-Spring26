@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  width: 360px;
+  min-height: 420px;
+  margin: 0;
+  padding: 0;
+  font-family: 'Share Tech Mono', monospace;
+  background: #eef2fa;
+  color: #2a3a5a;
+}
+
+.titlebar {
+  background: linear-gradient(90deg, #3050a0, #5040b0);
+  color: white;
+  padding: 4px 8px;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #2a3a5a;
+}
+
+.pixel-bar {
+  height: 4px;
+  background: repeating-linear-gradient(90deg, #6040c0 0px, #6040c0 4px, #2060c0 4px, #2060c0 8px, #c8d4e8 8px, #c8d4e8 10px);
+}
+
+.panel {
+  background: #fafbff;
+  border: 1px solid #c8d4e8;
+  box-shadow: 2px 2px 0 #8aa4c8;
+}
+
+.bevel-out {
+  border-top: 1px solid #ffffff;
+  border-left: 1px solid #ffffff;
+  border-right: 1px solid #8aa4c8;
+  border-bottom: 1px solid #8aa4c8;
+  background: #dce6f4;
+}
+
+.btn {
+  font-family: inherit;
+  background: #dce6f4;
+  border-top: 1px solid #ffffff;
+  border-left: 1px solid #ffffff;
+  border-right: 1px solid #4a6898;
+  border-bottom: 1px solid #4a6898;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.btn:active {
+  border-top: 1px solid #4a6898;
+  border-left: 1px solid #4a6898;
+  border-right: 1px solid #ffffff;
+  border-bottom: 1px solid #ffffff;
+}
+
+.score-dial {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: bold;
+  color: white;
+}
+
+.grade-A { background: #1a8040; }
+.grade-B { background: #5a9050; }
+.grade-C { background: #906000; }
+.grade-D { background: #b05020; }
+.grade-F { background: #a02020; }
+
+.row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed #c8d4e8;
+  font-size: 12px;
+}
+
+.row:last-child { border-bottom: none; }
+.row .label { color: #8898b0; text-transform: uppercase; }
