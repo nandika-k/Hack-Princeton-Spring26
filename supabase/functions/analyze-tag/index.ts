@@ -24,7 +24,7 @@ Deno.serve(async (req) => {
 
   try {
     const contentType = req.headers.get('content-type') ?? ''
-    let imageUrl: string
+    let imageSource: string
     let phoneNumber: string | null = null
     let isTwilio = false
 
@@ -38,18 +38,18 @@ Deno.serve(async (req) => {
         return twilioReply('Please send a photo of the clothing tag — no image was received.')
       }
 
-      imageUrl = form.get('MediaUrl0') as string
-      if (!imageUrl) {
+      imageSource = form.get('MediaUrl0') as string
+      if (!imageSource) {
         return twilioReply('Could not read the image. Please try again.')
       }
     } else {
       const body = await req.json()
-      imageUrl = body.imageUrl
+      imageSource = body.imageDataUrl ?? body.imageUrl
       phoneNumber = body.phoneNumber ?? null
 
-      if (!imageUrl) {
+      if (!imageSource) {
         return new Response(
-          JSON.stringify({ error: 'imageUrl is required' }),
+          JSON.stringify({ error: 'imageUrl or imageDataUrl is required' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         )
       }
@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
     // K2-Think v2 vision analysis (extract + score) runs first.
     // Dedalus runs in parallel using 'Unknown' as placeholder —
     // we replace it with the extracted brand once K2 responds.
-    const k2Promise = analyzeTagWithK2Vision(imageUrl)
+    const k2Promise = analyzeTagWithK2Vision(imageSource)
 
     // Both settle concurrently; Dedalus is re-called with real brand if needed.
     const k2Result = await k2Promise
@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
       { auth: { persistSession: false } },
     )
     supabase.from('tag_scans').insert({
-      image_url: imageUrl,
+      image_url: imageSource.startsWith('data:') ? '[inline-upload]' : imageSource,
       phone_number: phoneNumber,
       extracted_brand: k2Result.brand,
       extracted_materials: k2Result.materials.map((m: MaterialComponent) => `${m.percentage}% ${m.name}`),

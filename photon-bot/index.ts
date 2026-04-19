@@ -1,20 +1,19 @@
-// Photon AI — iMessage bot via Spectrum-TS
+// Photon AI iMessage bot via Spectrum-TS.
 // Receives clothing tag photos over iMessage, calls the analyze-tag
-// Supabase edge function (K2-Think v2 vision + Dedalus), replies with score.
-//
-// Run: bun run index.ts
+// Supabase edge function, and replies with the sustainability score.
 
-import { Spectrum, text, responding } from 'spectrum-ts'
+import { Spectrum, text } from 'spectrum-ts'
 import { imessage } from 'spectrum-ts/providers/imessage'
 
-const PHOTON_PROJECT_ID     = process.env.PHOTON_PROJECT_ID!
+const PHOTON_PROJECT_ID = process.env.PHOTON_PROJECT_ID!
 const PHOTON_PROJECT_SECRET = process.env.PHOTON_PROJECT_SECRET!
-const SUPABASE_URL          = process.env.SUPABASE_URL!
-const SUPABASE_ANON_KEY     = process.env.SUPABASE_ANON_KEY!
+const SUPABASE_URL = process.env.SUPABASE_URL!
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY!
 
 if (!PHOTON_PROJECT_ID || !PHOTON_PROJECT_SECRET) {
   throw new Error('PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET are required')
 }
+
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY are required')
 }
@@ -25,47 +24,51 @@ const app = await Spectrum({
   providers: [imessage.config({ mode: 'cloud' })],
 })
 
-console.log('[Photon] Bot online — listening for iMessages...')
+console.log('[Photon] Bot online - listening for iMessages...')
 
 for await (const [space, message] of app.messages) {
   const content = message.content
 
   if (content.type === 'attachment' && content.mimeType?.startsWith('image/')) {
-    // Show typing indicator while K2-Think v2 processes
-    await space.send(responding())
+    await space.responding(async () => {
+      try {
+        const imageDataUrl = await attachmentToDataUrl(content)
+        const result = await callAnalyzeTag({
+          imageDataUrl,
+          phoneNumber: message.sender.id,
+        })
 
-    try {
-      const result = await callAnalyzeTag(content.url, message.sender.id)
-      await space.send(text(result.formattedReply))
-    } catch (err) {
-      console.error('[Bot] analyze-tag error:', err)
-      await space.send(
-        text("Couldn't read that tag — try a clearer, well-lit photo of the label."),
-      )
-    }
-  } else if (content.type === 'text') {
+        await sendText(space, result.formattedReply)
+      } catch (err) {
+        console.error('[Bot] analyze-tag error:', err)
+        await sendText(
+          space,
+          "Couldn't read that tag. Try a clearer, well-lit photo of the label.",
+        )
+      }
+    })
+
+    continue
+  }
+
+  if (content.type === 'text') {
     const body = content.text?.trim().toLowerCase() ?? ''
 
     if (body === 'help' || body === 'hi' || body === 'hello' || body === '') {
-      await space.send(
-        text(
-          '👋 Photon AI — Sustainability Scanner\n\n' +
-          'Send a photo of any clothing tag or fabric label and I\'ll instantly score its ' +
-          'carbon footprint, materials, and sustainability.\n\n' +
-          '🌿 Score 70+  Highly sustainable\n' +
-          '🟡 Score 40–69  Moderate\n' +
-          '🔴 Score <40  Low sustainability',
-        ),
+      await sendText(
+        space,
+        'Photon AI - Sustainability Scanner\n\n' +
+          'Send a photo of any clothing tag or fabric label and I will score its ' +
+          'materials and sustainability.\n\n' +
+          'Score 70+: Highly sustainable\n' +
+          'Score 40-69: Moderate\n' +
+          'Score below 40: Low sustainability',
       )
     } else {
-      await space.send(
-        text("Send me a photo of the clothing tag — I'll handle the rest. 📸"),
-      )
+      await sendText(space, "Send me a photo of the clothing tag and I'll handle the rest.")
     }
   }
 }
-
-// ─── Supabase edge function call ─────────────────────────────
 
 type AnalyzeTagResult = {
   extraction: {
@@ -84,14 +87,25 @@ type AnalyzeTagResult = {
   formattedReply: string
 }
 
-async function callAnalyzeTag(imageUrl: string, phoneNumber?: string): Promise<AnalyzeTagResult> {
+type AnalyzeTagInput = {
+  imageUrl?: string
+  imageDataUrl?: string
+  phoneNumber?: string
+}
+
+type ImageAttachment = {
+  mimeType?: string
+  read: () => Promise<Buffer>
+}
+
+async function callAnalyzeTag(input: AnalyzeTagInput): Promise<AnalyzeTagResult> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/analyze-tag`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ imageUrl, phoneNumber }),
+    body: JSON.stringify(input),
   })
 
   if (!res.ok) {
@@ -100,4 +114,14 @@ async function callAnalyzeTag(imageUrl: string, phoneNumber?: string): Promise<A
   }
 
   return res.json()
+}
+
+async function attachmentToDataUrl(content: ImageAttachment): Promise<string> {
+  const bytes = await content.read()
+  const mimeType = content.mimeType || 'image/jpeg'
+  return `data:${mimeType};base64,${bytes.toString('base64')}`
+}
+
+async function sendText(space: { send: (...content: ReturnType<typeof text>[]) => Promise<void> }, value: string) {
+  await space.send(text(value))
 }
