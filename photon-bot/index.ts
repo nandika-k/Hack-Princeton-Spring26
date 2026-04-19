@@ -1,6 +1,6 @@
 // Photon AI iMessage bot via Spectrum-TS.
-// Receives clothing tag photos over iMessage, calls the analyze-tag
-// Supabase edge function, and replies with the sustainability score.
+// Accepts clothing tag photos OR a guided text flow (brand → materials).
+// Calls the analyze-tag Supabase edge function and replies with the sustainability score.
 
 import { Spectrum, text } from 'spectrum-ts'
 import { imessage } from 'spectrum-ts/providers/imessage'
@@ -26,18 +26,32 @@ const app = await Spectrum({
 
 console.log('[Photon] Bot online - listening for iMessages...')
 
+// Per-sender conversation state for the text-input scan flow
+type ConversationStep = 'awaiting_brand' | 'awaiting_materials'
+type ConversationState = { step: ConversationStep; brand?: string }
+const conversations = new Map<string, ConversationState>()
+
+const HELP_MESSAGE =
+  'Photon AI - Sustainability Scanner\n\n' +
+  'Options:\n' +
+  '• Send a photo of any clothing tag\n' +
+  '• Or reply "scan" to enter the tag details manually\n\n' +
+  'Score 70+: Highly sustainable\n' +
+  'Score 40-69: Moderate\n' +
+  'Score below 40: Low sustainability'
+
 for await (const [space, message] of app.messages) {
   const content = message.content
+  const senderId = message.sender.id
 
   if (content.type === 'attachment' && content.mimeType?.startsWith('image/')) {
+    // Clear any in-progress text flow when a photo arrives
+    conversations.delete(senderId)
+
     await space.responding(async () => {
       try {
         const imageDataUrl = await attachmentToDataUrl(content)
-        const result = await callAnalyzeTag({
-          imageDataUrl,
-          phoneNumber: message.sender.id,
-        })
-
+        const result = await callAnalyzeTag({ imageDataUrl, phoneNumber: senderId })
         await sendText(space, result.formattedReply)
       } catch (err) {
         console.error('[Bot] analyze-tag error:', err)
@@ -52,23 +66,60 @@ for await (const [space, message] of app.messages) {
   }
 
   if (content.type === 'text') {
-    const body = content.text?.trim().toLowerCase() ?? ''
+    const body = content.text?.trim() ?? ''
+    const lower = body.toLowerCase()
+    const state = conversations.get(senderId)
 
-    if (body === 'help' || body === 'hi' || body === 'hello' || body === '') {
+    // Step 1 — waiting for brand name
+    if (state?.step === 'awaiting_brand') {
+      if (!body) {
+        await sendText(space, 'What brand is listed on the fabric tag?')
+        continue
+      }
+      conversations.set(senderId, { step: 'awaiting_materials', brand: body })
       await sendText(
         space,
-        'Photon AI - Sustainability Scanner\n\n' +
-          'Send a photo of any clothing tag or fabric label and I will score its ' +
-          'materials and sustainability.\n\n' +
-          'Score 70+: Highly sustainable\n' +
-          'Score 40-69: Moderate\n' +
-          'Score below 40: Low sustainability',
+        `Got it: "${body}"\n\nWhat materials are listed on the tag?\n\nExample: "60% Cotton, 40% Polyester"`,
       )
+      continue
+    }
+
+    // Step 2 — waiting for materials
+    if (state?.step === 'awaiting_materials') {
+      if (!body) {
+        await sendText(
+          space,
+          'Please type the fabric composition from the tag (e.g. "60% Cotton, 40% Polyester").',
+        )
+        continue
+      }
+      const brand = state.brand!
+      conversations.delete(senderId)
+
+      await space.responding(async () => {
+        try {
+          const result = await callAnalyzeTag({ brand, materialsText: body, phoneNumber: senderId })
+          await sendText(space, result.formattedReply)
+        } catch (err) {
+          console.error('[Bot] text analyze-tag error:', err)
+          await sendText(space, "Couldn't analyze that. Please try again.")
+        }
+      })
+      continue
+    }
+
+    // No active conversation state
+    if (lower === 'help' || lower === 'hi' || lower === 'hello' || lower === '') {
+      await sendText(space, HELP_MESSAGE)
     } else {
-      await sendText(space, "Send me a photo of the clothing tag and I'll handle the rest.")
+      // Any other text starts the guided text-input flow
+      conversations.set(senderId, { step: 'awaiting_brand' })
+      await sendText(space, 'What brand is listed on the fabric tag?')
     }
   }
 }
+
+// ─── Types ───────────────────────────────────────────────────
 
 type AnalyzeTagResult = {
   extraction: {
@@ -90,6 +141,8 @@ type AnalyzeTagResult = {
 type AnalyzeTagInput = {
   imageUrl?: string
   imageDataUrl?: string
+  brand?: string
+  materialsText?: string
   phoneNumber?: string
 }
 
@@ -97,6 +150,8 @@ type ImageAttachment = {
   mimeType?: string
   read: () => Promise<Buffer>
 }
+
+// ─── Helpers ─────────────────────────────────────────────────
 
 async function callAnalyzeTag(input: AnalyzeTagInput): Promise<AnalyzeTagResult> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/analyze-tag`, {
