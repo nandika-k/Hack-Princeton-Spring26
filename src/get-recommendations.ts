@@ -1,8 +1,7 @@
 import { aggregateProducts } from './aggregate-products'
 import { filterValidatedListings } from './lib/listingValidation'
+import { buildRecommendationQuery } from './lib/recommendationQuery'
 import type { Product } from './types/product'
-
-const DEFAULT_QUERY = 'sustainable secondhand vintage clothing'
 
 /** @expose */
 export async function getRecommendations(page: number = 0): Promise<Product[]> {
@@ -16,7 +15,7 @@ export async function getRecommendations(page: number = 0): Promise<Product[]> {
     ? await db.StylePreference.findFirst({ where: { user: { id: profile.id } } })
     : null
 
-  const query = buildQuery(prefs)
+  const query = buildRecommendationQuery(prefs)
 
   try {
     const live = await aggregateProducts({ query, page })
@@ -27,16 +26,3 @@ export async function getRecommendations(page: number = 0): Promise<Product[]> {
   }
 }
 
-function buildQuery(prefs: { style_tags: string[]; occasions: string[] } | null): string {
-  if (!prefs || prefs.style_tags.length === 0) {
-    return DEFAULT_QUERY
-  }
-
-  const parts = [
-    ...prefs.style_tags,
-    ...prefs.occasions.map((occasion) => `${occasion} outfit`),
-    'secondhand vintage clothing',
-  ]
-
-  return parts.slice(0, 4).join(' ')
-}

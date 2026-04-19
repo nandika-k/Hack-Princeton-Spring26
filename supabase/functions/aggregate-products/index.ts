@@ -1,11 +1,20 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import {
-  buildRetailerSearchQuery,
-  extractListingPrice,
+  classifyListingBucket,
+  buildRetailerSearchQueries,
+  extractListingImageUrls,
+  extractRetailerListingPrice,
   filterValidatedListings,
+  LISTING_SCRAPE_VERSION,
+  matchesListingSearch,
+  needsListingRefresh,
   normalizeListingCandidate,
-  normalizeListingImageUrls,
 } from '../../../src/lib/listingValidation.ts'
+import {
+  buildRetailerSearchPlan,
+  type RetailerSearchPlan,
+  type RetailerSearchQuery,
+} from '../../../src/lib/recommendationQuery.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,6 +35,12 @@ const PAGE_SIZE = 20
 const CACHE_SCAN_BATCH_SIZE = 100
 
 let cleanupPromise: Promise<void> | null = null
+
+type FetchedSearchResult = {
+  product: any
+  bucket: RetailerSearchQuery['bucket']
+  fallback: boolean
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -51,11 +66,20 @@ Deno.serve(async (req) => {
     const targets = retailers && retailers.length > 0
       ? RETAILERS.filter((retailer) => retailers.includes(retailer.name))
       : RETAILERS
+    const searchPlans = new Map(
+      targets.map((retailer) => [retailer.name, buildRetailerSearchPlan(query, retailer.name)]),
+    )
 
     await ensureCacheCleanup(supabase)
 
     const cacheThreshold = new Date(Date.now() - CACHE_TTL_MS).toISOString()
-    const cachedProducts = await collectValidCachedProducts(supabase, targets.map((retailer) => retailer.name), cacheThreshold, page)
+    const cachedProducts = await collectValidCachedProducts(
+      supabase,
+      targets.map((retailer) => retailer.name),
+      cacheThreshold,
+      page,
+      searchPlans,
+    )
     const cachedPage = cachedProducts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
     if (cachedPage.length === PAGE_SIZE) {
@@ -72,7 +96,7 @@ Deno.serve(async (req) => {
     }
 
     const results = await Promise.allSettled(
-      targets.map((retailer) => fetchRetailer(query, retailer.domain, retailer.name, tavilyKey)),
+      targets.map((retailer) => fetchRetailer(searchPlans.get(retailer.name)!, retailer.domain, retailer.name, tavilyKey)),
     )
 
     const liveProducts = filterValidatedListings(
@@ -108,41 +132,90 @@ Deno.serve(async (req) => {
 })
 
 async function fetchRetailer(
-  query: string,
+  searchPlan: RetailerSearchPlan,
   domain: string,
   retailerName: string,
   apiKey: string,
 ): Promise<any[]> {
-  const res = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query: buildRetailerSearchQuery(query, retailerName, domain),
-      include_domains: [domain],
-      include_raw_content: 'text',
-      search_depth: 'basic',
-      include_images: true,
-      max_results: 20,
-    }),
-  })
+  const primaryQueries = searchPlan.liveQueries.filter((queryPlan) => !queryPlan.fallback)
+  const primaryResults = await Promise.allSettled(
+    primaryQueries.map((queryPlan) => fetchRetailerQuery(queryPlan, domain, retailerName, apiKey)),
+  )
 
-  if (!res.ok) {
-    throw new Error(`Tavily error for ${domain}: ${res.status}`)
+  const collectedResults = primaryResults
+    .filter((result): result is PromiseFulfilledResult<FetchedSearchResult[]> => result.status === 'fulfilled')
+    .flatMap((result) => result.value)
+
+  if (searchPlan.diversified && needsBottomFallback(collectedResults)) {
+    const fallbackQueries = searchPlan.liveQueries.filter((queryPlan) => queryPlan.fallback)
+    const fallbackResults = await Promise.allSettled(
+      fallbackQueries.map((queryPlan) => fetchRetailerQuery(queryPlan, domain, retailerName, apiKey)),
+    )
+
+    collectedResults.push(
+      ...fallbackResults
+        .filter((result): result is PromiseFulfilledResult<FetchedSearchResult[]> => result.status === 'fulfilled')
+        .flatMap((result) => result.value),
+    )
   }
 
-  const data = await res.json()
-  return (data.results ?? [])
-    .map((item: Record<string, unknown>, index: number) => normalizeResult(item, retailerName, index))
-    .filter((product: any) => product !== null)
+  return searchPlan.diversified
+    ? balanceRetailerResults(collectedResults)
+    : dedupeRetailerResults(collectedResults)
+}
+
+async function fetchRetailerQuery(
+  queryPlan: RetailerSearchQuery,
+  domain: string,
+  retailerName: string,
+  apiKey: string,
+): Promise<FetchedSearchResult[]> {
+  const searchQueries = buildRetailerSearchQueries(queryPlan.query, retailerName, domain)
+
+  for (const searchQuery of searchQueries) {
+    const res = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: searchQuery,
+        include_domains: [domain],
+        include_raw_content: 'text',
+        search_depth: 'basic',
+        include_images: true,
+        max_results: 20,
+      }),
+    })
+
+    if (!res.ok) {
+      throw new Error(`Tavily error for ${domain}: ${res.status}`)
+    }
+
+    const data = await res.json()
+    const normalizedResults = (data.results ?? [])
+      .map((item: Record<string, unknown>, index: number) => normalizeResult(item, retailerName, index))
+      .filter((product: any) => product !== null)
+      .map((product: any) => ({
+        product,
+        bucket: queryPlan.bucket,
+        fallback: Boolean(queryPlan.fallback),
+      }))
+
+    if (normalizedResults.length > 0) {
+      return normalizedResults
+    }
+  }
+
+  return []
 }
 
 function normalizeResult(item: Record<string, unknown>, retailer: string, index: number): any {
   const title = typeof item.title === 'string' ? item.title : 'Untitled'
   const description = typeof item.content === 'string' ? item.content : ''
   const rawContent = typeof item.raw_content === 'string' ? item.raw_content : ''
-  const extractedPrice = extractListingPrice(title, description, rawContent)
-  const externalId = encodeURIComponent(String(item.url ?? `${retailer}-${index}`))
+  const productUrl = typeof item.url === 'string' ? item.url : ''
+  const extractedPrice = extractRetailerListingPrice(retailer, title, description, rawContent)
+  const externalId = encodeURIComponent(String(productUrl || `${retailer}-${index}`))
 
   return normalizeListingCandidate(
     {
@@ -152,15 +225,20 @@ function normalizeResult(item: Record<string, unknown>, retailer: string, index:
       description,
       price: extractedPrice.price,
       currency: extractedPrice.currency,
-      image_urls: normalizeListingImageUrls(
-        Array.isArray(item.images)
+      image_urls: extractListingImageUrls({
+        retailer,
+        product_url: productUrl,
+        image_urls: Array.isArray(item.images)
           ? item.images.filter((image): image is string => typeof image === 'string')
           : [],
-        retailer,
-      ),
-      product_url: typeof item.url === 'string' ? item.url : '',
+        title,
+        description,
+        raw_content: rawContent,
+      }),
+      product_url: productUrl,
       sustainability_score: null,
       score_explanation: null,
+      metadata: { scrape_version: LISTING_SCRAPE_VERSION },
     },
     retailer,
   )
@@ -171,6 +249,7 @@ async function collectValidCachedProducts(
   retailers: string[],
   cacheThreshold: string,
   page: number,
+  searchPlans: Map<string, RetailerSearchPlan>,
 ): Promise<any[]> {
   const targetCount = (page + 1) * PAGE_SIZE
   const validProducts: any[] = []
@@ -196,11 +275,19 @@ async function collectValidCachedProducts(
 
     for (const product of data) {
       const normalized = normalizeListingCandidate(product)
-      if (!normalized) {
+      if (!normalized || needsListingRefresh(product)) {
         continue
       }
 
-      const key = normalized.id ?? normalized.product_url
+      const searchPlan = searchPlans.get(normalized.retailer)
+      if (
+        searchPlan?.diversified &&
+        !searchPlan.cacheQueries.some((searchQuery) => matchesListingSearch(normalized, searchQuery))
+      ) {
+        continue
+      }
+
+      const key = normalized.product_url ?? normalized.id
       if (seenKeys.has(key)) {
         continue
       }
@@ -221,6 +308,89 @@ async function collectValidCachedProducts(
   }
 
   return validProducts
+}
+
+function dedupeRetailerResults(results: FetchedSearchResult[]): any[] {
+  const deduped = new Map<string, any>()
+
+  for (const result of results) {
+    const key = result.product.product_url ?? result.product.id
+    if (!deduped.has(key)) {
+      deduped.set(key, result.product)
+    }
+  }
+
+  return Array.from(deduped.values())
+}
+
+function balanceRetailerResults(results: FetchedSearchResult[]): any[] {
+  const topProducts: any[] = []
+  const bottomProducts: any[] = []
+  const overflowProducts: any[] = []
+  const seenKeys = new Set<string>()
+
+  for (const result of results) {
+    const key = result.product.product_url ?? result.product.id
+    if (seenKeys.has(key)) {
+      continue
+    }
+
+    seenKeys.add(key)
+    const classifiedBucket = classifyListingBucket(result.product)
+    const bucket = classifiedBucket ?? (result.bucket === 'general' ? null : result.bucket)
+
+    if (bucket === 'top') {
+      topProducts.push(result.product)
+      continue
+    }
+
+    if (bucket === 'bottom') {
+      bottomProducts.push(result.product)
+      continue
+    }
+
+    overflowProducts.push(result.product)
+  }
+
+  const balancedProducts: any[] = []
+  let topIndex = 0
+  let bottomIndex = 0
+
+  while (topIndex < topProducts.length || bottomIndex < bottomProducts.length) {
+    if (topIndex < topProducts.length) {
+      balancedProducts.push(topProducts[topIndex])
+      topIndex += 1
+    }
+
+    if (bottomIndex < bottomProducts.length) {
+      balancedProducts.push(bottomProducts[bottomIndex])
+      bottomIndex += 1
+    }
+  }
+
+  return [...balancedProducts, ...overflowProducts]
+}
+
+function needsBottomFallback(results: FetchedSearchResult[]): boolean {
+  const seenKeys = new Set<string>()
+  let bottomCount = 0
+
+  for (const result of results) {
+    const key = result.product.product_url ?? result.product.id
+    if (seenKeys.has(key)) {
+      continue
+    }
+
+    seenKeys.add(key)
+    const classifiedBucket = classifyListingBucket(result.product)
+    const bucket = classifiedBucket ?? (result.bucket === 'general' ? null : result.bucket)
+
+    if (bucket === 'bottom') {
+      bottomCount += 1
+    }
+  }
+
+  return bottomCount < 4
 }
 
 async function ensureCacheCleanup(supabase: ReturnType<typeof createClient>): Promise<void> {

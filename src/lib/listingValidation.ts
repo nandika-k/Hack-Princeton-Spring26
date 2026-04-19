@@ -18,6 +18,10 @@ export type ExtractedPrice = {
   currency: string | null
 }
 
+export type ListingBucket = 'top' | 'bottom'
+
+export const LISTING_SCRAPE_VERSION = 4
+
 type RetailerRule = {
   domains: string[]
   allowedPathPatterns: RegExp[]
@@ -25,11 +29,24 @@ type RetailerRule = {
   searchHints: string[]
 }
 
+type ListingMetadata = {
+  scrape_version?: number
+}
+
+type ListingImageExtractionInput = {
+  retailer?: string | null
+  product_url?: string | null
+  image_urls?: string[] | null
+  title?: string | null
+  description?: string | null
+  raw_content?: string | null
+}
+
 const DOCUMENT_EXTENSION_PATTERN = /\.(?:pdf|doc|docx|ppt|pptx|xls|xlsx)(?:$|[?#])/i
 const GOOGLE_HOST_PATTERN = /(^|\.)google\./i
 const IMAGE_EXTENSION_BLOCK_PATTERN = /\.(?:svg|gif|ico)(?:$|[?#])/i
 const IMAGE_ASSET_PATTERN = /(logo|icon|favicon|avatar|placeholder|sprite|pixel|badge|shield|default-user|transparent|meta-preview-image)/i
-const PRICE_MATCH_PATTERN = /\b(?:(USD|US|GBP|EUR|CAD|AUD)\s*)?(\$|£|€)\s?(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)|\b(USD|GBP|EUR|CAD|AUD)\s*(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)/gi
+const PRICE_MATCH_PATTERN = /(?:^|[^\w])(?:(USD|US|GBP|EUR|CAD|AUD)\s*)?(\$|£|€)\s?(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)|\b(USD|GBP|EUR|CAD|AUD)\s*(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)/gi
 const PRICE_POSITIVE_CONTEXT_PATTERN = /\b(price|now|sale|selling for|buy it now|asking|listed for|offer|current bid|current price)\b/i
 const PRICE_NEGATIVE_CONTEXT_PATTERN = /\b(shipping|delivery|tax|fee|fees|buyer protection|protection|deposit)\b/i
 const PRICE_OLD_CONTEXT_PATTERN = /\b(was|original|retail|compare at|msrp|valued at)\b/i
@@ -51,8 +68,112 @@ const TRACKING_QUERY_PARAMS = new Set([
   '_trksid',
 ])
 const STATIC_ASSET_HOST_PATTERNS = [
+  /^assets\.depop\.com$/i,
+  /^contentful\.depop\.com$/i,
   /^ir\.ebaystatic\.com$/i,
   /^marketplace-web-assets\.vinted\.com$/i,
+]
+const STRICT_IMAGE_HOST_RETAILERS = new Set(['depop', 'ebay', 'vinted', 'whatnot'])
+const RETAILER_STOP_MARKERS: Record<string, string[]> = {
+  depop: ['More from this seller', 'You might also like', 'Depop Sell Help Site Information'],
+  vinted: ['Shipping', 'Buyer Protection fee', "Member's items", 'Similar items'],
+  whatnot: ['More from the Seller', 'Buyer Protections', 'About the Seller'],
+}
+const WHATNOT_IMAGE_PATH_PATTERN = /(?:^|[^a-z0-9])(listings(?:%2f|\/)[^)\s"'\\]+?(?:\.(?:jpe?g|png|webp))?)(?=[)\s"'\\]|$)/gi
+const MOCK_LISTING_PATTERN = /\bmock[-_]\d+\b/i
+const FASHION_POSITIVE_PATTERNS = [
+  /\bjeans?\b/i,
+  /\bdenim\b/i,
+  /\bshirt\b/i,
+  /\bt-?shirt\b/i,
+  /\btee\b/i,
+  /\btop\b/i,
+  /\bblouse\b/i,
+  /\bjacket\b/i,
+  /\bcoat\b/i,
+  /\bhoodie\b/i,
+  /\bsweatshirt\b/i,
+  /\bsweater\b/i,
+  /\bcardigan\b/i,
+  /\bpants?\b/i,
+  /\btrousers?\b/i,
+  /\bshorts?\b/i,
+  /\bskirt\b/i,
+  /\bdress\b/i,
+  /\bjumpsuit\b/i,
+  /\boveralls?\b/i,
+  /\bvest\b/i,
+  /\bwindbreaker\b/i,
+  /\bcapri\b/i,
+  /\bleggings?\b/i,
+  /\bshoe(s)?\b/i,
+  /\bsneaker(s)?\b/i,
+  /\bboot(s)?\b/i,
+  /\bloafer(s)?\b/i,
+  /\bheel(s)?\b/i,
+  /\bsandal(s)?\b/i,
+  /\bbag\b/i,
+  /\bhandbag\b/i,
+  /\bpurse\b/i,
+  /\bbelt\b/i,
+]
+const FASHION_NEGATIVE_PATTERNS = [
+  /\bpattern(s)?\b/i,
+  /\bcatalog\b/i,
+  /\bpaper\b/i,
+  /\bjournal\b/i,
+  /\barticle\b/i,
+  /\bmagazine\b/i,
+  /\bbook\b/i,
+  /\bcomic\b/i,
+  /\bdvd\b/i,
+  /\bcd\b/i,
+  /\bvinyl\b/i,
+  /\bposter\b/i,
+  /\bfan\b/i,
+  /\bstool\b/i,
+  /\bcandy dish\b/i,
+  /\bbuilding\b/i,
+  /\bvillage\b/i,
+  /\btablet(s)?\b/i,
+  /\bnose drops?\b/i,
+  /\bmedical\b/i,
+  /\bbrand identity\b/i,
+  /\bbranding\b/i,
+  /\bkit\b/i,
+]
+const TOP_CLASSIFICATION_PATTERNS = [
+  /\bbaby tee\b/i,
+  /\bcami(?:sole)?\b/i,
+  /\btank(?:\s+top)?\b/i,
+  /\bcrop\s+top\b/i,
+  /\btop\b/i,
+  /\btee\b/i,
+  /\bt-?shirt\b/i,
+  /\bshirt\b/i,
+  /\bblouse\b/i,
+  /\bhoodie\b/i,
+  /\bsweatshirt\b/i,
+  /\bsweater\b/i,
+  /\bcardigan\b/i,
+  /\bjacket\b/i,
+  /\bcoat\b/i,
+  /\bcorset\b/i,
+  /\bhalter\b/i,
+]
+const BOTTOM_CLASSIFICATION_PATTERNS = [
+  /\bmini skirt\b/i,
+  /\bmicro shorts?\b/i,
+  /\bcargo pants?\b/i,
+  /\bcapri pants?\b/i,
+  /\bcapris?\b/i,
+  /\bskirt\b/i,
+  /\bshorts?\b/i,
+  /\bpants?\b/i,
+  /\btrousers?\b/i,
+  /\bjeans?\b/i,
+  /\bjorts?\b/i,
+  /\bleggings?\b/i,
 ]
 const GLOBAL_BLOCKED_PATH_PATTERNS = [
   /\/blog(?:\/|$)/i,
@@ -91,13 +212,27 @@ const SEARCH_NEGATIONS = [
   '-theme',
   '-search',
 ].join(' ')
+const SEARCH_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'for',
+  'from',
+  'in',
+  'of',
+  'on',
+  'or',
+  'the',
+  'to',
+  'with',
+])
 const RETAILER_IMAGE_HOST_PATTERNS: Record<string, RegExp[]> = {
-  depop: [/depop\./i],
+  depop: [/^media-photos\.depop\.com$/i],
   vinted: [/\.vinted\.net$/i],
   ebay: [/^i\.ebayimg\.com$/i],
   thredup: [/thredup\./i],
   vestiaire: [/vestiaire/i],
-  whatnot: [/whatnot/i],
+  whatnot: [/^images\.whatnot\.com$/i],
 }
 
 const RETAILER_RULES: Record<string, RetailerRule> = {
@@ -139,17 +274,50 @@ const RETAILER_RULES: Record<string, RetailerRule> = {
 }
 
 export function buildRetailerSearchQuery(query: string, retailer: string, domain: string): string {
+  return buildRetailerSearchQueries(query, retailer, domain)[0] ?? query.trim()
+}
+
+export function buildRetailerSearchQueries(query: string, retailer: string, domain: string): string[] {
   const normalizedRetailer = retailer.trim().toLowerCase()
   const retailerRule = RETAILER_RULES[normalizedRetailer]
-
-  return [
-    query.trim(),
-    `site:${domain}`,
-    ...(retailerRule?.searchHints ?? []),
-    SEARCH_NEGATIONS,
+  const exactPhrase = buildExactRetailerSearchPhrase(query)
+  const normalizedQuery = query.trim().replace(/\s+/g, ' ')
+  const variants = [
+    [
+      exactPhrase ?? normalizedQuery,
+      `site:${domain}`,
+      ...(retailerRule?.searchHints ?? []),
+      SEARCH_NEGATIONS,
+    ],
+    [
+      normalizedRetailer,
+      normalizedQuery,
+      SEARCH_NEGATIONS,
+    ],
+    [
+      normalizedQuery,
+      normalizedRetailer,
+      SEARCH_NEGATIONS,
+    ],
   ]
+    .map((parts) => parts.filter(Boolean).join(' ').trim())
     .filter(Boolean)
-    .join(' ')
+
+  return Array.from(new Set(variants))
+}
+
+function buildExactRetailerSearchPhrase(query: string): string | null {
+  const normalizedQuery = query.trim().replace(/\s+/g, ' ')
+  if (!normalizedQuery) {
+    return null
+  }
+
+  const tokenCount = normalizedQuery.split(' ').length
+  if (tokenCount < 2 || tokenCount > 6 || normalizedQuery.length > 64) {
+    return null
+  }
+
+  return `"${normalizedQuery}"`
 }
 
 export function normalizeListingPrice(price: number | null | undefined): number | null {
@@ -214,6 +382,8 @@ export function extractListingPrice(...textSources: Array<string | null | undefi
     })
   }
 
+  adjustDiscountCandidateScores(candidates, haystack)
+
   candidates.sort((left, right) =>
     right.score - left.score ||
     left.price! - right.price! ||
@@ -229,6 +399,70 @@ export function extractListingPrice(...textSources: Array<string | null | undefi
     price: best.price,
     currency: best.currency ?? 'USD',
   }
+}
+
+export function extractRetailerListingPrice(
+  retailer: string | null | undefined,
+  title: string | null | undefined,
+  ...textSources: Array<string | null | undefined>
+): ExtractedPrice {
+  const normalizedRetailer = retailer?.trim().toLowerCase() ?? ''
+  const normalizedTitle = normalizeText(title)
+  const focusedTextSources = textSources.map((value) =>
+    focusRetailerExtractionText(normalizedRetailer, normalizedTitle, value),
+  )
+
+  return extractListingPrice(
+    normalizedTitle,
+    ...(
+      normalizedRetailer === 'vinted'
+        ? focusedTextSources.map((value) => stripVintedInclusivePrices(value))
+        : focusedTextSources
+    ),
+  )
+}
+
+export function extractListingImageUrls(input: ListingImageExtractionInput): string[] {
+  const retailer = input.retailer?.trim().toLowerCase() ?? null
+  const providedImages = Array.isArray(input.image_urls) ? input.image_urls : []
+
+  if (retailer === 'vinted') {
+    const extractedFromProvided = extractVintedListingImages(providedImages)
+    if (extractedFromProvided.length > 0) {
+      return normalizeListingImageUrls(
+        extractedFromProvided,
+        retailer ?? undefined,
+        input.product_url ?? undefined,
+      )
+    }
+  }
+
+  if (retailer === 'whatnot') {
+    const extractedFromText = extractWhatnotListingImages(
+      focusRetailerImageText(retailer, normalizeText(input.title), input.raw_content) ??
+        focusRetailerImageText(retailer, normalizeText(input.title), input.description),
+    )
+
+    if (extractedFromText.length > 0) {
+      return normalizeListingImageUrls(
+        extractedFromText,
+        retailer ?? undefined,
+        input.product_url ?? undefined,
+      )
+    }
+  }
+
+  return normalizeListingImageUrls(providedImages, retailer ?? undefined, input.product_url ?? undefined)
+}
+
+export function needsListingRefresh(candidate: ListingCandidate): boolean {
+  const retailer = (candidate.retailer ?? '').trim().toLowerCase()
+  if (retailer !== 'depop' && retailer !== 'whatnot' && retailer !== 'vinted') {
+    return false
+  }
+
+  const metadata = getListingMetadata(candidate.metadata)
+  return (metadata.scrape_version ?? 0) < LISTING_SCRAPE_VERSION
 }
 
 export function normalizeListingCandidate<T extends ListingCandidate>(
@@ -255,6 +489,8 @@ export function normalizeListingCandidate<T extends ListingCandidate>(
   const pathname = productUrl.pathname.toLowerCase()
 
   if (
+    MOCK_LISTING_PATTERN.test(candidate.id ?? '') ||
+    MOCK_LISTING_PATTERN.test(rawUrl) ||
     (productUrl.protocol !== 'http:' && productUrl.protocol !== 'https:') ||
     GOOGLE_HOST_PATTERN.test(hostname) ||
     DOCUMENT_EXTENSION_PATTERN.test(productUrl.pathname) ||
@@ -265,6 +501,10 @@ export function normalizeListingCandidate<T extends ListingCandidate>(
     retailerRule.allowedPathPatterns.length === 0 ||
     !retailerRule.allowedPathPatterns.some((pattern) => pattern.test(pathname))
   ) {
+    return null
+  }
+
+  if (!isLikelyFashionListing(title, candidate.description)) {
     return null
   }
 
@@ -280,7 +520,7 @@ export function normalizeListingCandidate<T extends ListingCandidate>(
     currency: normalizedPrice == null
       ? null
       : normalizeCurrency(candidate.currency) ?? fallbackPrice.currency ?? 'USD',
-    image_urls: normalizeListingImageUrls(candidate.image_urls, retailer),
+    image_urls: normalizeListingImageUrls(candidate.image_urls, retailer, productUrl),
     product_url: normalizeProductUrl(productUrl),
   }
 }
@@ -291,7 +531,7 @@ export function filterValidatedListings<T extends ListingCandidate>(
   retailer: string | null,
 ): T[] {
   const normalizedRetailer = retailer && retailer !== 'all' ? retailer.toLowerCase() : null
-  const normalizedSearch = search.trim().toLowerCase()
+  const searchTerms = normalizeSearchTerms(search)
   const deduped = new Map<string, T>()
 
   for (const product of products) {
@@ -304,21 +544,41 @@ export function filterValidatedListings<T extends ListingCandidate>(
       continue
     }
 
-    if (normalizedSearch) {
-      const haystack = `${normalized.title ?? ''} ${normalized.description ?? ''} ${normalized.retailer ?? ''}`
-        .toLowerCase()
-      if (!haystack.includes(normalizedSearch)) {
-        continue
-      }
+    if (!matchesSearchQuery(normalized, searchTerms)) {
+      continue
     }
 
-    const key = normalized.id ?? normalized.product_url ?? `${normalized.retailer}:${normalized.title}`
+    const key = normalized.product_url ?? normalized.id ?? `${normalized.retailer}:${normalized.title}`
     if (!deduped.has(key)) {
       deduped.set(key, normalized)
     }
   }
 
   return Array.from(deduped.values())
+}
+
+export function matchesListingSearch(candidate: ListingCandidate, search: string): boolean {
+  return matchesSearchQuery(candidate, normalizeSearchTerms(search))
+}
+
+export function classifyListingBucket(candidate: Pick<ListingCandidate, 'title' | 'description'>): ListingBucket | null {
+  const haystack = `${candidate.title ?? ''} ${candidate.description ?? ''}`.trim()
+  if (!haystack) {
+    return null
+  }
+
+  const topMatch = TOP_CLASSIFICATION_PATTERNS.some((pattern) => pattern.test(haystack))
+  const bottomMatch = BOTTOM_CLASSIFICATION_PATTERNS.some((pattern) => pattern.test(haystack))
+
+  if (topMatch && !bottomMatch) {
+    return 'top'
+  }
+
+  if (bottomMatch && !topMatch) {
+    return 'bottom'
+  }
+
+  return null
 }
 
 function hostnameMatches(hostname: string, domain: string): boolean {
@@ -328,6 +588,7 @@ function hostnameMatches(hostname: string, domain: string): boolean {
 export function normalizeListingImageUrls(
   imageUrls: string[] | null | undefined,
   retailerHint?: string,
+  productUrlHint?: string | URL | null,
 ): string[] {
   if (!Array.isArray(imageUrls)) {
     return []
@@ -335,6 +596,7 @@ export function normalizeListingImageUrls(
 
   const retailer = retailerHint?.trim().toLowerCase() ?? null
   const preferredHosts = retailer ? RETAILER_IMAGE_HOST_PATTERNS[retailer] ?? [] : []
+  const strictHosts = retailer ? STRICT_IMAGE_HOST_RETAILERS.has(retailer) : false
   const deduped = new Map<string, { score: number; url: string }>()
 
   for (const imageUrl of imageUrls) {
@@ -357,9 +619,11 @@ export function normalizeListingImageUrls(
     const pathname = parsed.pathname.toLowerCase()
 
     if (
+      (strictHosts && !preferredHosts.some((pattern) => pattern.test(hostname))) ||
       IMAGE_EXTENSION_BLOCK_PATTERN.test(pathname) ||
       IMAGE_ASSET_PATTERN.test(hostname) ||
       IMAGE_ASSET_PATTERN.test(pathname) ||
+      !isRetailerImagePathAllowed(retailer, pathname) ||
       pathname.includes('/_next/static/media/') ||
       STATIC_ASSET_HOST_PATTERNS.some((pattern) => pattern.test(hostname))
     ) {
@@ -367,7 +631,7 @@ export function normalizeListingImageUrls(
     }
 
     const normalizedUrl = normalizeImageUrl(parsed, retailer)
-    const score = scoreImageUrl(parsed, preferredHosts)
+    const score = scoreImageUrl(parsed, preferredHosts, retailer, productUrlHint)
     if (score < 0) {
       continue
     }
@@ -441,6 +705,10 @@ function normalizeImageUrl(imageUrl: URL, retailer: string | null): string {
   const normalized = new URL(imageUrl.toString())
   normalized.hash = ''
 
+  if (retailer === 'depop') {
+    normalized.pathname = normalized.pathname.replace(/\/P\d+(\.[a-z0-9]+)$/i, '/P0$1')
+  }
+
   if (retailer === 'ebay' && normalized.hostname.toLowerCase() === 'i.ebayimg.com') {
     normalized.pathname = normalized.pathname.replace(
       /\/s-l(?:140|160|225|300|400|500|640|960|1200)(\.[a-z0-9]+)$/i,
@@ -448,10 +716,23 @@ function normalizeImageUrl(imageUrl: URL, retailer: string | null): string {
     )
   }
 
+  if (retailer === 'vinted') {
+    normalized.pathname = normalized.pathname.replace(/\/(?:\d+x\d+|f\d+)\//i, '/f800/')
+  }
+
+  if (retailer === 'whatnot') {
+    normalized.pathname = normalized.pathname.replace(/\/fit-in\/\d+x0\//i, '/fit-in/3840x0/')
+  }
+
   return normalized.toString()
 }
 
-function scoreImageUrl(imageUrl: URL, preferredHosts: RegExp[]): number {
+function scoreImageUrl(
+  imageUrl: URL,
+  preferredHosts: RegExp[],
+  retailer: string | null,
+  productUrlHint?: string | URL | null,
+): number {
   const hostname = imageUrl.hostname.toLowerCase()
   const pathname = imageUrl.pathname.toLowerCase()
   let score = 0
@@ -466,6 +747,8 @@ function scoreImageUrl(imageUrl: URL, preferredHosts: RegExp[]): number {
 
   if (/\/f800\//i.test(pathname) || /s-l1600/i.test(pathname)) {
     score += 30
+  } else if (/\/fit-in\/3840x0\//i.test(pathname)) {
+    score += 30
   } else if (/\/\d{3,4}x\d{3,4}\//i.test(pathname) || /s-l(?:400|500|640|960|1200)/i.test(pathname)) {
     score += 18
   } else if (/s-l140/i.test(pathname)) {
@@ -474,6 +757,33 @@ function scoreImageUrl(imageUrl: URL, preferredHosts: RegExp[]): number {
 
   if (pathname.includes('stockimage')) {
     score -= 80
+  }
+
+  if (retailer === 'depop') {
+    if (/\/P0\.[a-z0-9]+$/i.test(pathname)) {
+      score += 40
+    }
+
+    if (/\/u\d+\.[a-z0-9]+$/i.test(pathname)) {
+      score -= 90
+    }
+  }
+
+  if (retailer === 'whatnot') {
+    if (pathname.includes('/users%2f') || pathname.includes('/users/') || pathname.includes('/store%2f') || pathname.includes('/store/')) {
+      score -= 100
+    }
+
+    const listingId = extractWhatnotListingId(productUrlHint)
+    if (listingId && pathname.includes(`${listingId}-`)) {
+      score += 45
+    } else if (pathname.includes('/listings%2f0-') || pathname.includes('/listings/0-')) {
+      score += 20
+    }
+
+    if (pathname.includes('/pending/')) {
+      score -= 15
+    }
   }
 
   return score
@@ -486,4 +796,318 @@ function parsePriceNumber(value: string | undefined): number | null {
 
   const parsed = Number.parseFloat(value.replace(/,/g, ''))
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function focusRetailerExtractionText(
+  retailer: string,
+  title: string | null,
+  text: string | null | undefined,
+): string | null {
+  const normalizedText = normalizeText(text)
+  if (!normalizedText) {
+    return null
+  }
+
+  let focused = normalizedText
+  const lowerText = normalizedText.toLowerCase()
+  const normalizedTitle = title ?? ''
+  const lowerTitle = normalizedTitle.toLowerCase() || null
+  const titleIndex = lowerTitle ? lowerText.indexOf(lowerTitle) : -1
+
+  if (titleIndex >= 0) {
+    const start = Math.max(0, titleIndex - 160)
+    const end = Math.min(
+      normalizedText.length,
+      titleIndex + Math.max(normalizedTitle.length + 1400, 900),
+    )
+    focused = normalizedText.slice(start, end)
+  } else if (retailer === 'whatnot') {
+    focused = normalizedText.slice(0, Math.min(normalizedText.length, 1400))
+  } else if (retailer === 'depop') {
+    const buyNowIndex = lowerText.indexOf('buy now')
+    if (buyNowIndex >= 0) {
+      focused = normalizedText.slice(Math.max(0, buyNowIndex - 260))
+    }
+  }
+
+  return trimAtStopMarker(focused, RETAILER_STOP_MARKERS[retailer] ?? [])
+}
+
+function focusRetailerImageText(
+  retailer: string,
+  title: string | null,
+  text: string | null | undefined,
+): string | null {
+  const normalizedText = normalizeText(text)
+  if (!normalizedText) {
+    return null
+  }
+
+  if (retailer !== 'whatnot') {
+    return trimAtStopMarker(normalizedText, RETAILER_STOP_MARKERS[retailer] ?? [])
+  }
+
+  const lowerText = normalizedText.toLowerCase()
+  const normalizedTitle = title ?? ''
+  const lowerTitle = normalizedTitle.toLowerCase()
+  let focused = normalizedText
+
+  if (lowerTitle) {
+    const titleIndex = lowerText.indexOf(lowerTitle)
+    if (titleIndex >= 0) {
+      focused = normalizedText.slice(Math.max(0, titleIndex - 120))
+    }
+  }
+
+  const detailsIndex = focused.toLowerCase().indexOf('product details')
+  if (detailsIndex >= 0) {
+    focused = focused.slice(0, detailsIndex)
+  }
+
+  return trimAtStopMarker(focused, RETAILER_STOP_MARKERS[retailer] ?? [])
+}
+
+function trimAtStopMarker(text: string, stopMarkers: string[]): string {
+  let end = text.length
+  const lowerText = text.toLowerCase()
+
+  for (const marker of stopMarkers) {
+    const index = lowerText.indexOf(marker.toLowerCase())
+    if (index >= 0) {
+      end = Math.min(end, index)
+    }
+  }
+
+  return text.slice(0, end)
+}
+
+function adjustDiscountCandidateScores(
+  candidates: Array<ExtractedPrice & { index: number; score: number }>,
+  haystack: string,
+): void {
+  for (let index = 0; index < candidates.length; index += 1) {
+    const current = candidates[index]
+
+    for (let nextIndex = index + 1; nextIndex < candidates.length; nextIndex += 1) {
+      const next = candidates[nextIndex]
+      if (next.index - current.index > 80) {
+        break
+      }
+
+      const nearbyWindow = haystack.slice(current.index, Math.min(haystack.length, next.index + 48)).toLowerCase()
+      if (PRICE_DISCOUNT_CONTEXT_PATTERN.test(nearbyWindow) && next.price !== null && current.price !== null && next.price < current.price) {
+        current.score -= 45
+        next.score += 35
+      }
+    }
+  }
+}
+
+function stripVintedInclusivePrices(text: string | null): string | null {
+  if (!text) {
+    return null
+  }
+
+  return text.replace(
+    /(?:^|[^\w])(?:(?:USD|US|GBP|EUR|CAD|AUD)\s*)?(?:\$|£|€)\s?\d{1,4}(?:,\d{3})*(?:\.\d{2})?\s*(?:incl\.?|includes\s+buyer\s+protection)\b/gi,
+    ' ',
+  )
+}
+
+function extractVintedListingImages(imageUrls: string[]): string[] {
+  const validImages = imageUrls
+    .map((imageUrl, index) => {
+      if (typeof imageUrl !== 'string') {
+        return null
+      }
+
+      try {
+        const parsed = new URL(imageUrl)
+        const hostname = parsed.hostname.toLowerCase()
+        const pathname = parsed.pathname.toLowerCase()
+
+        if (
+          !/\.vinted\.net$/i.test(hostname) ||
+          IMAGE_EXTENSION_BLOCK_PATTERN.test(pathname) ||
+          IMAGE_ASSET_PATTERN.test(hostname) ||
+          IMAGE_ASSET_PATTERN.test(pathname)
+        ) {
+          return null
+        }
+
+        return {
+          index,
+          url: imageUrl,
+          groupKey: extractVintedImageGroupKey(parsed) ?? `idx:${index}`,
+        }
+      } catch {
+        return null
+      }
+    })
+    .filter((candidate): candidate is { index: number; url: string; groupKey: string } => candidate !== null)
+
+  if (validImages.length === 0) {
+    return []
+  }
+
+  const grouped = new Map<string, { firstIndex: number; urls: string[] }>()
+
+  for (const image of validImages) {
+    const existing = grouped.get(image.groupKey)
+    if (existing) {
+      existing.urls.push(image.url)
+      existing.firstIndex = Math.min(existing.firstIndex, image.index)
+    } else {
+      grouped.set(image.groupKey, { firstIndex: image.index, urls: [image.url] })
+    }
+  }
+
+  const sortedGroups = Array.from(grouped.values())
+    .sort((left, right) => right.urls.length - left.urls.length || left.firstIndex - right.firstIndex)
+
+  const preferredGroup = sortedGroups[0]
+  return preferredGroup ? preferredGroup.urls : []
+}
+
+function extractWhatnotListingImages(text: string | null): string[] {
+  if (!text) {
+    return []
+  }
+
+  const matches = new Set<string>()
+  WHATNOT_IMAGE_PATH_PATTERN.lastIndex = 0
+
+  let match: RegExpExecArray | null
+  while ((match = WHATNOT_IMAGE_PATH_PATTERN.exec(text)) !== null) {
+    const rawPath = match[1]
+      .replace(/[).,]+$/, '')
+      .replace(/^\/+/, '')
+
+    if (!rawPath) {
+      continue
+    }
+
+    const lowerPath = rawPath.toLowerCase()
+    if (
+      lowerPath.includes('users%2f') ||
+      lowerPath.includes('users/') ||
+      lowerPath.includes('store%2f') ||
+      lowerPath.includes('store/')
+    ) {
+      continue
+    }
+
+    matches.add(`https://images.whatnot.com/fit-in/3840x0/filters:format(webp)/${rawPath}`)
+  }
+
+  return Array.from(matches)
+}
+
+function isRetailerImagePathAllowed(retailer: string | null, pathname: string): boolean {
+  if (retailer === 'depop') {
+    return /\/P\d+\.[a-z0-9]+$/i.test(pathname)
+  }
+
+  if (retailer === 'vinted') {
+    return /\/(?:\d+x\d+|f\d+)\/\d+\.(?:webp|jpe?g|png)$/i.test(pathname)
+  }
+
+  if (retailer === 'whatnot') {
+    return pathname.includes('/listings%2f') || pathname.includes('/listings/')
+  }
+
+  return true
+}
+
+function extractWhatnotListingId(productUrlHint?: string | URL | null): string | null {
+  if (!productUrlHint) {
+    return null
+  }
+
+  let pathname = ''
+
+  if (productUrlHint instanceof URL) {
+    pathname = productUrlHint.pathname
+  } else {
+    try {
+      pathname = new URL(productUrlHint).pathname
+    } catch {
+      return null
+    }
+  }
+
+  const match = pathname.match(/\/listing\/([^/?#]+)/i)
+  if (!match?.[1]) {
+    return null
+  }
+
+  try {
+    const decoded = globalThis.atob(match[1])
+    const listingMatch = decoded.match(/ListingNode:(\d+)/i)
+    return listingMatch?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
+function extractVintedImageGroupKey(imageUrl: URL): string | null {
+  const match = imageUrl.pathname.match(/\/(?:\d+x\d+|f\d+)\/(\d+)\.(?:webp|jpe?g|png)$/i)
+  return match?.[1] ?? null
+}
+
+function getListingMetadata(value: unknown): ListingMetadata {
+  return typeof value === 'object' && value !== null ? value as ListingMetadata : {}
+}
+
+function isLikelyFashionListing(
+  title: string,
+  description: string | null | undefined,
+): boolean {
+  const haystack = `${title} ${description ?? ''}`
+
+  if (FASHION_NEGATIVE_PATTERNS.some((pattern) => pattern.test(haystack))) {
+    return false
+  }
+
+  return FASHION_POSITIVE_PATTERNS.some((pattern) => pattern.test(haystack))
+}
+
+function normalizeSearchTerms(search: string): string[] {
+  const trimmed = search.trim().toLowerCase()
+  if (!trimmed) {
+    return []
+  }
+
+  const quotedTerms = Array.from(trimmed.matchAll(/"([^"]+)"/g))
+    .map((match) => match[1]?.trim())
+    .filter((value): value is string => Boolean(value))
+
+  const bareTokens = Array.from(trimmed.replace(/"[^"]+"/g, ' ').match(/[a-z0-9]+/g) ?? [])
+    .filter((token) => token.length >= 2 && !SEARCH_STOP_WORDS.has(token))
+
+  return Array.from(new Set([...quotedTerms, ...bareTokens]))
+}
+
+function matchesSearchQuery(candidate: ListingCandidate, searchTerms: string[]): boolean {
+  if (searchTerms.length === 0) {
+    return true
+  }
+
+  const haystack = `${candidate.title ?? ''} ${candidate.description ?? ''} ${candidate.retailer ?? ''}`
+    .toLowerCase()
+  const matchedTerms = searchTerms.filter((term) => haystack.includes(term))
+
+  if (matchedTerms.length === searchTerms.length) {
+    return true
+  }
+
+  if (searchTerms.length === 1) {
+    return matchedTerms.length === 1
+  }
+
+  const minimumMatches = searchTerms.length <= 2
+    ? searchTerms.length
+    : Math.min(searchTerms.length, Math.max(2, Math.ceil(searchTerms.length * 0.6)))
+
+  return matchedTerms.length >= minimumMatches
 }
