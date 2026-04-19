@@ -15,11 +15,17 @@ export async function calculateSustainability(productId: string): Promise<Sustai
   if (!product) throw new Error(`Product not found: ${productId}`)
 
   if (canReuseCachedScore(product, PRODUCT_SCRAPE_VERSION)) {
+    const score = product.sustainability_score
+    const text = `${product.title} ${product.description ?? ''}`.toLowerCase()
+
     return {
-      score: product.sustainability_score,
+      score,
       explanation: product.score_explanation,
       reasoning: product.score_explanation,
-      comparison: buildComparison(product.sustainability_score),
+      comparison: buildComparison(score),
+      carbon_kg: carbonKg(score),
+      fabric_type: extractFabric(text),
+      condition: extractCondition(product.description ?? ''),
     }
   }
 
@@ -47,10 +53,41 @@ export async function calculateSustainability(productId: string): Promise<Sustai
     },
   })
 
+  const score = ifmResult.score
+  const text = `${product.title} ${product.description ?? ''}`.toLowerCase()
   return {
-    score: ifmResult.score,
+    score,
     explanation: ifmResult.explanation,
     reasoning: ifmResult.reasoning,
-    comparison: buildComparison(ifmResult.score),
+    comparison: buildComparison(score),
+    carbon_kg: carbonKg(score),
+    fabric_type: extractFabric(text),
+    condition: extractCondition(product.description ?? ''),
   }
+}
+
+function carbonKg(score: number): number {
+  if (score >= 70) return Math.round(score * 0.3)
+  if (score >= 40) return Math.round(score * 0.15)
+  return 2
+}
+
+function extractFabric(text: string): string | null {
+  const fabrics = ['cashmere', 'wool', 'silk', 'linen', 'cotton', 'denim', 'polyester', 'viscose', 'rayon', 'nylon', 'spandex', 'leather', 'suede', 'velvet', 'corduroy', 'satin', 'chiffon']
+  for (const fabric of fabrics) {
+    if (text.includes(fabric)) {
+      return fabric.charAt(0).toUpperCase() + fabric.slice(1)
+    }
+  }
+
+  return null
+}
+
+function extractCondition(text: string): string | null {
+  const normalized = text.toLowerCase()
+  if (normalized.includes('new with tags') || normalized.includes('nwt')) return 'New w/ Tags'
+  if (normalized.includes('excellent') || normalized.includes('mint')) return 'Excellent'
+  if (normalized.includes('good') || normalized.includes('great')) return 'Good'
+  if (normalized.includes('fair') || normalized.includes('worn') || normalized.includes('used')) return 'Fair'
+  return 'Good'
 }

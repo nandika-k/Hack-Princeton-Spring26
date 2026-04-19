@@ -473,11 +473,20 @@ export async function getSustainabilityLocal(product: string | Product): Promise
     })
   } catch (error) {
     if (inputProduct) {
+      const score = inputProduct.sustainability_score ?? 65
+      const text = (inputProduct.title + ' ' + (inputProduct.description ?? '')).toLowerCase()
       return {
-        score: inputProduct.sustainability_score ?? 65,
+        score,
         explanation: inputProduct.score_explanation ?? 'Fallback sustainability estimate from local product data.',
-        reasoning: inputProduct.score_explanation ?? 'Local backend scoring was unavailable, so the UI is showing a cached estimate.',
-        comparison: 'Estimated locally while the backend score warms up.',
+        reasoning: inputProduct.score_explanation ?? 'Local backend scoring was unavailable; showing cached estimate.',
+        comparison: score >= 70
+          ? `saves ~${Math.round(score * 0.3)} kg CO2 vs buying new`
+          : score >= 40
+            ? `saves ~${Math.round(score * 0.15)} kg CO2 vs buying new`
+            : 'minimal CO2 savings vs buying new',
+        carbon_kg: score >= 70 ? Math.round(score * 0.3) : score >= 40 ? Math.round(score * 0.15) : 2,
+        fabric_type: extractFabric(text),
+        condition: extractCondition(inputProduct.description ?? ''),
       }
     }
 
@@ -635,4 +644,21 @@ export async function getAccountSnapshot(userId: string): Promise<AccountSnapsho
 
 export function getDemoCredentials(): typeof DEMO_LOGINS {
   return DEMO_LOGINS
+}
+
+function extractFabric(text: string): string | null {
+  const fabrics = ['cashmere', 'wool', 'silk', 'linen', 'cotton', 'denim', 'polyester', 'viscose', 'rayon', 'nylon', 'spandex', 'leather', 'suede', 'velvet', 'corduroy', 'satin', 'chiffon']
+  for (const f of fabrics) {
+    if (text.includes(f)) return f.charAt(0).toUpperCase() + f.slice(1)
+  }
+  return null
+}
+
+function extractCondition(text: string): string | null {
+  const t = text.toLowerCase()
+  if (t.includes('new with tags') || t.includes('nwt')) return 'New w/ Tags'
+  if (t.includes('excellent') || t.includes('mint')) return 'Excellent'
+  if (t.includes('good') || t.includes('great')) return 'Good'
+  if (t.includes('fair') || t.includes('worn') || t.includes('used')) return 'Fair'
+  return 'Good'
 }

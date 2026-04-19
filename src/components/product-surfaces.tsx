@@ -51,48 +51,88 @@ export function ProductCard({
   onSave,
   secondaryAction,
 }: ProductCardProps): JSX.Element {
-  const score = product.sustainability_score ?? 0
   const primaryImage = product.image_urls?.[0] ?? null
-  const description = product.description ?? 'Description loading from the archive cache.'
-  const priceLabel = formatPrice(product.price, product.currency)
 
   return (
-    <article className="product-card">
-      <button className="image-stage" onClick={onOpen} type="button">
-        <CornerBrackets />
-        <span className={`eco-badge ${ecoBadgeClass(score)}`}>ECO {score || '--'}</span>
-        <span className="pixel-flourish pixel-flourish-a">*</span>
-        <span className="pixel-flourish pixel-flourish-b">+</span>
+    <article
+      className="pin-card"
+      onClick={onOpen}
+      role="button"
+      style={{ background: pinBg(product.id), cursor: 'pointer' }}
+      tabIndex={0}
+      onKeyDown={(e) => e.key === 'Enter' && onOpen()}
+    >
+      <div className="pin-image-area" style={{ height: pinHeight(product.id) }}>
         {primaryImage ? (
-          <img alt={product.title} className="product-image" src={primaryImage} />
+          <img alt={product.title} className="pin-img" src={primaryImage} />
         ) : (
-          <span className="text-xs text-text-silver">Image cache warming...</span>
+          <span className="pin-placeholder">{categoryEmoji(product.title)}</span>
         )}
-      </button>
-      <div className="space-y-3 p-3">
-        <div className="space-y-1">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-text-silver">{product.retailer}</p>
-          <button className="block text-left text-[15px] leading-snug text-text-dark" onClick={onOpen} type="button">
-            {product.title}
+        <div className="pin-hover-overlay" style={{ pointerEvents: 'none' }}>
+          <span className="pin-title">{product.title}</span>
+        </div>
+        <button
+          className={`pin-save-btn${pinned ? ' pin-save-btn-active' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onSave()
+          }}
+          type="button"
+        >
+          {pinned ? '★' : '☆'}
+        </button>
+        {secondaryAction ? (
+          <button
+            className="pin-save-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              secondaryAction.onClick()
+            }}
+            style={{ top: 'auto', bottom: '0.75rem', fontSize: 10, width: 'auto', borderRadius: 4, padding: '2px 8px' }}
+            type="button"
+          >
+            {secondaryAction.label}
           </button>
-          <p className="line-clamp-2 text-[11px] leading-relaxed text-text-silver">{description}</p>
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-[15px] text-blue">{priceLabel}</span>
-          <div className="flex items-center gap-2">
-            {secondaryAction ? (
-              <button className="btn-secondary" onClick={secondaryAction.onClick} type="button">
-                {secondaryAction.label}
-              </button>
-            ) : null}
-            <button className={pinned ? 'btn-save btn-save-active' : 'btn-save'} onClick={onSave} type="button">
-              SAVE_IT
-            </button>
-          </div>
-        </div>
+        ) : null}
       </div>
     </article>
   )
+}
+
+const PIN_BACKGROUNDS = [
+  '#BCD4E9',
+  '#C8D9E2',
+  '#DDE9EA',
+  '#CCDBD1',
+  '#B8CFDE',
+  '#D4E4E8',
+  '#C2D8E6',
+]
+
+const PIN_HEIGHTS = ['220px', '280px', '240px', '320px', '200px', '260px', '300px', '180px']
+
+function pinBg(id: string): string {
+  const h = id.split('').reduce((a, c) => a + c.charCodeAt(0), 0)
+  return PIN_BACKGROUNDS[h % PIN_BACKGROUNDS.length]
+}
+
+function pinHeight(id: string): string {
+  const h = id.split('').reduce((a, c) => a + c.charCodeAt(0) * 31, 0)
+  return PIN_HEIGHTS[h % PIN_HEIGHTS.length]
+}
+
+function categoryEmoji(title: string): string {
+  const t = title.toLowerCase()
+  if (t.includes('jean') || t.includes('pant') || t.includes('denim')) return '👖'
+  if (t.includes('dress') || t.includes('skirt')) return '👗'
+  if (t.includes('coat') || t.includes('jacket') || t.includes('blazer') || t.includes('trench')) return '🧥'
+  if (t.includes('shoe') || t.includes('boot') || t.includes('sneaker') || t.includes('heel')) return '👟'
+  if (t.includes('bag') || t.includes('purse') || t.includes('tote') || t.includes('handbag')) return '👜'
+  if (t.includes('shirt') || t.includes('tee') || t.includes('top') || t.includes('blouse')) return '👕'
+  if (t.includes('hat') || t.includes('cap') || t.includes('beret')) return '🧢'
+  if (t.includes('scarf')) return '🧣'
+  if (t.includes('swim') || t.includes('bikini')) return '🩱'
+  return '✦'
 }
 
 export function ProductDetailModal({
@@ -103,56 +143,136 @@ export function ProductDetailModal({
   onSave,
 }: ProductDetailModalProps): JSX.Element {
   const primaryImage = product.image_urls?.[0] ?? null
-  const description = product.description ?? 'Description not available yet for this archived listing.'
+  const description = product.description ?? ''
   const priceLabel = formatPrice(product.price, product.currency)
-  const productLookupUrl = resolveProductLookupUrl(product)
+  const score = result?.score ?? product.sustainability_score ?? null
+  const ecoColor = score == null ? 'var(--forest-sage)' : score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--amber)' : 'var(--red)'
 
   return (
     <ModalShell onClose={onClose}>
-      <div className="modal-panel max-w-4xl">
-        <div className="titlebar">
-          <span>{product.title}</span>
-          <button className="titlebar-close" onClick={onClose} type="button">
-            x
+      <div className="modal-panel max-w-3xl">
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: '0.5px solid var(--sage-mist)' }}
+        >
+          <span
+            className="text-[9px] uppercase tracking-[4px]"
+            style={{ color: 'var(--forest-sage)' }}
+          >
+            ECOTHREAD DETAIL
+          </span>
+          <button
+            className="text-[18px] leading-none"
+            onClick={onClose}
+            style={{ color: 'var(--forest-sage)' }}
+            type="button"
+          >
+            ×
           </button>
         </div>
-        <div className="pixel-bar" />
-        <div className="grid gap-5 p-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="image-stage min-h-[360px]">
-            <CornerBrackets />
+
+        <div className="grid lg:grid-cols-[1fr_1fr]">
+          {/* Image */}
+          <div
+            className="flex min-h-[340px] items-center justify-center overflow-hidden"
+            style={{ background: pinBg(product.id) }}
+          >
             {primaryImage ? (
-              <img alt={product.title} className="product-image" src={primaryImage} />
+              <img alt={product.title} className="h-full w-full object-cover" src={primaryImage} />
             ) : (
-              <span className="text-sm text-text-silver">Image unavailable</span>
+              <span style={{ fontSize: 80 }}>{categoryEmoji(product.title)}</span>
             )}
           </div>
-          <div className="space-y-4">
-            <div className="panel-flat space-y-2 p-4">
-              <p className="text-[10px] uppercase tracking-[0.3em] text-text-silver">{product.retailer}</p>
-              <h2 className="text-xl text-text-dark">{product.title}</h2>
-              <p className="text-[13px] leading-relaxed text-text-silver">{description}</p>
-              <div className="text-lg text-blue">{priceLabel}</div>
+
+          {/* Info panel */}
+          <div className="flex flex-col gap-5 p-6">
+            {/* Title + retailer + price */}
+            <div>
+              <p
+                className="mb-1 text-[9px] uppercase tracking-[3px]"
+                style={{ color: 'var(--forest-sage)' }}
+              >
+                {product.retailer}
+              </p>
+              <h2
+                className="mb-3 text-xl leading-snug"
+                style={{ color: 'var(--deep-navy)' }}
+              >
+                {product.title}
+              </h2>
+              <p
+                className="text-2xl"
+                style={{ color: 'var(--midnight-blue)' }}
+              >
+                {priceLabel}
+              </p>
             </div>
 
-            <div className={`eco-block ${ecoBlockClass(result?.score ?? 0)}`}>
-              {loading ? (
-                <p className="text-sm">Running K2-style reasoning...</p>
-              ) : (
-                <>
-                  <p className="text-[11px] uppercase tracking-[0.25em]">ECO_SCORE: {result?.score ?? '--'} / 100</p>
-                  <p className="text-sm leading-relaxed">{result?.explanation}</p>
-                  <p className="text-xs leading-relaxed opacity-90">{result?.reasoning}</p>
-                  <p className="text-xs uppercase tracking-[0.2em] opacity-80">{result?.comparison}</p>
-                </>
-              )}
+            {/* Stats grid */}
+            <div className="grid grid-cols-3 gap-2">
+              <StatBlock label="ECO SCORE" value={loading ? '—' : `${score ?? '—'}/100`} accent={ecoColor} />
+              <StatBlock
+                label="FABRIC"
+                value={loading ? '—' : (result?.fabric_type ?? inferFabric(description))}
+                accent="var(--midnight-blue)"
+              />
+              <StatBlock
+                label="CONDITION"
+                value={loading ? '—' : (result?.condition ?? 'Good')}
+                accent="var(--forest-sage)"
+              />
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            {/* CO2 saving */}
+            {!loading && result?.carbon_kg != null && (
+              <div
+                className="flex items-center gap-2 px-3 py-2 text-[11px] uppercase tracking-[2px]"
+                style={{
+                  background: 'var(--seafoam)',
+                  borderRadius: 6,
+                  color: 'var(--forest-sage)',
+                }}
+              >
+                <span>☁</span>
+                <span>saves ~{result.carbon_kg} kg CO₂ vs buying new</span>
+              </div>
+            )}
+
+            {/* Description */}
+            {description ? (
+              <p className="text-[12px] leading-relaxed" style={{ color: 'var(--forest-sage)' }}>
+                {description}
+              </p>
+            ) : null}
+
+            {/* K2 reasoning */}
+            {!loading && result?.reasoning && (
+              <p
+                className="border-l-2 pl-3 text-[11px] leading-relaxed"
+                style={{
+                  borderColor: 'var(--sky-mist)',
+                  color: 'var(--forest-sage)',
+                  opacity: 0.85,
+                }}
+              >
+                {result.reasoning}
+              </p>
+            )}
+
+            {loading && (
+              <p className="text-[11px] uppercase tracking-[2px]" style={{ color: 'var(--sage-mist)' }}>
+                Analyzing sustainability...
+              </p>
+            )}
+
+            {/* Actions */}
+            <div className="mt-auto flex gap-3">
               <button className="btn-save btn-save-wide" onClick={onSave} type="button">
-                SAVE_IT
+                ★ PIN IT
               </button>
-              <a className="btn-secondary" href={productLookupUrl} rel="noreferrer" target="_blank">
-                OPEN
+              <a className="btn-secondary" href={product.product_url} rel="noreferrer" target="_blank">
+                OPEN ↗
               </a>
             </div>
           </div>
@@ -160,6 +280,39 @@ export function ProductDetailModal({
       </div>
     </ModalShell>
   )
+}
+
+function StatBlock({
+  label,
+  value,
+  accent,
+}: {
+  label: string
+  value: string | null | undefined
+  accent: string
+}): JSX.Element {
+  return (
+    <div
+      className="flex flex-col gap-1 px-3 py-2"
+      style={{ background: 'var(--frost-white)', borderRadius: 6 }}
+    >
+      <span className="text-[8px] uppercase tracking-[2px]" style={{ color: 'var(--forest-sage)' }}>
+        {label}
+      </span>
+      <span className="text-[13px] uppercase tracking-[1px]" style={{ color: accent }}>
+        {value ?? '—'}
+      </span>
+    </div>
+  )
+}
+
+function inferFabric(description: string): string | null {
+  const t = description.toLowerCase()
+  const fabrics = ['cashmere', 'wool', 'silk', 'linen', 'cotton', 'denim', 'polyester', 'viscose', 'rayon', 'nylon', 'leather', 'suede', 'velvet', 'corduroy', 'satin', 'chiffon']
+  for (const f of fabrics) {
+    if (t.includes(f)) return f.charAt(0).toUpperCase() + f.slice(1)
+  }
+  return null
 }
 
 export function BoardCard({ board, pins }: BoardCardProps): JSX.Element {

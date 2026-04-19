@@ -41,7 +41,10 @@ export type AggregateInput = {
 
 export type SustainabilityResult = {
   score: number
-  explanation: string   // one-sentence summary for product card
-  reasoning: string     // 2-3 sentence detail for product modal (K2-Think chain)
-  comparison: string    // e.g. "saves ~24 kg CO2 vs buying new"
+  explanation: string
+  reasoning: string
+  comparison: string
+  carbon_kg: number | null
+  fabric_type: string | null
+  condition: string | null
 }

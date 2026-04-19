@@ -6,6 +6,7 @@ import {
 import { useDeferredValue, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
+import { Component as GlowBackground } from './components/ui/background-components'
 import {
   addPinToBoard,
   createBoardLocal,
@@ -22,7 +23,6 @@ import {
   upsertStylePreference,
 } from './lib/rewear-store'
 import { OCCASIONS, STYLE_TAGS } from './types/profile'
-import type { Board } from './types/board'
 import type { Product } from './types/product'
 import {
   BoardCard,
@@ -67,46 +67,35 @@ export function AuthPage(): JSX.Element {
   const demoCredentials = getDemoCredentials()
 
   return (
-    <div className="mx-auto grid min-h-[calc(100vh-140px)] w-full max-w-6xl gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-      <section className="panel overflow-hidden">
-        <div className="titlebar">
-          <span>rewear_bootloader.exe</span>
-          <span className="text-[10px] uppercase tracking-[0.25em]">auth shell</span>
+    <GlowBackground className="flex items-center justify-center px-6 py-12"
+    >
+      <div className="w-full max-w-4xl">
+        {/* Logo */}
+        <div className="mb-10 text-center">
+          <img
+            src="/src/images/EcoThread_Logo.png"
+            alt="EcoThread logo"
+            className="mx-auto mb-4"
+            style={{ height: 80, width: 'auto' }}
+          />
+          <h1
+            className="mb-2"
+            style={{ fontSize: 28, letterSpacing: 8, color: 'var(--deep-navy)' }}
+          >
+            EcoThread
+          </h1>
+          <p style={{ fontSize: 10, letterSpacing: 4, color: 'var(--forest-sage)', textTransform: 'uppercase' }}>
+            sustainable secondhand fashion · hackprinceton 2026
+          </p>
         </div>
-        <div className="pixel-bar" />
-        <div className="grid gap-6 p-6 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="space-y-4">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-text-silver">HackPrinceton Spring 2026</p>
-            <h1 className="text-4xl leading-tight text-text-dark">Discover secondhand looks with a bright, old-web pulse.</h1>
-            <p className="text-sm leading-7 text-text-silver">
-              ReWear pairs a Pinterest-style feed with sustainability scoring, saved boards, and a glitchy Y2K desktop shell.
-            </p>
-            <div className="panel-flat grid gap-3 p-4">
-              <p className="text-[10px] uppercase tracking-[0.28em] text-text-silver">Demo accounts auto-bootstrap on first sign-in</p>
-              {demoCredentials.map((account) => (
-                <button
-                  className="demo-login"
-                  key={account.email}
-                  onClick={() => {
-                    setMode('sign-in')
-                    setEmail(account.email)
-                    setPassword(account.password)
-                  }}
-                  type="button"
-                >
-                  <span className="text-left">
-                    <span className="block text-[11px] uppercase tracking-[0.2em] text-purple">{account.label}</span>
-                    <span className="block text-xs text-text-silver">
-                      {account.email} / {account.password}
-                    </span>
-                  </span>
-                  <span className="text-blue">{'>>'}</span>
-                </button>
-              ))}
-            </div>
-          </div>
 
-          <form className="space-y-4" onSubmit={handleSubmit}>
+        <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+          {/* Left — form */}
+          <div
+            className="space-y-5 rounded-xl p-8"
+            style={{ background: 'white', border: '0.5px solid var(--sage-mist)' }}
+          >
+            {/* Tabs */}
             <div className="flex gap-2">
               <button
                 className={mode === 'sign-in' ? 'tab-button tab-button-active' : 'tab-button'}
@@ -124,50 +113,91 @@ export function AuthPage(): JSX.Element {
               </button>
             </div>
 
-            {mode === 'sign-up' ? (
+            <form className="space-y-4" onSubmit={handleSubmit}>
+              {mode === 'sign-up' ? (
+                <label className="field-shell">
+                  <span>Display name</span>
+                  <input onChange={(event) => setDisplayName(event.target.value)} value={displayName} />
+                </label>
+              ) : null}
+
               <label className="field-shell">
-                <span>Display name</span>
-                <input onChange={(event) => setDisplayName(event.target.value)} value={displayName} />
+                <span>Email</span>
+                <input
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@ecothread.dev"
+                  type="email"
+                  value={email}
+                />
               </label>
-            ) : null}
 
-            <label className="field-shell">
-              <span>Email</span>
-              <input
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@rewear.dev"
-                type="email"
-                value={email}
-              />
-            </label>
+              <label className="field-shell">
+                <span>Password</span>
+                <input onChange={(event) => setPassword(event.target.value)} type="password" value={password} />
+              </label>
 
-            <label className="field-shell">
-              <span>Password</span>
-              <input onChange={(event) => setPassword(event.target.value)} type="password" value={password} />
-            </label>
+              {error ? (
+                <div
+                  className="p-3 text-sm"
+                  style={{ border: '0.5px solid var(--red)', color: 'var(--red)', borderRadius: 4 }}
+                >
+                  {error}
+                </div>
+              ) : null}
 
-            {error ? <div className="panel-flat border-red p-3 text-sm text-red">{error}</div> : null}
+              <button className="btn-save btn-save-wide w-full justify-center" type="submit">
+                {mode === 'sign-in' ? 'ENTER FEED' : 'CREATE ACCOUNT'}
+              </button>
+            </form>
+          </div>
 
-            <button className="btn-save btn-save-wide justify-center" type="submit">
-              {mode === 'sign-in' ? 'ENTER_FEED' : 'CREATE_ACCOUNT'}
-            </button>
-          </form>
+          {/* Right — demo accounts */}
+          <div
+            className="space-y-4 rounded-xl p-8"
+            style={{ background: 'var(--seafoam)', border: '0.5px solid var(--sage-mist)' }}
+          >
+            <p style={{ fontSize: 9, letterSpacing: 4, color: 'var(--forest-sage)', textTransform: 'uppercase' }}>
+              Try a demo account
+            </p>
+            <div className="space-y-2">
+              {demoCredentials.map((account) => (
+                <button
+                  className="demo-login w-full"
+                  key={account.email}
+                  onClick={() => {
+                    setMode('sign-in')
+                    setEmail(account.email)
+                    setPassword(account.password)
+                  }}
+                  type="button"
+                >
+                  <span className="text-left">
+                    <span
+                      className="block text-[11px] uppercase tracking-[0.2em]"
+                      style={{ color: 'var(--deep-navy)' }}
+                    >
+                      {account.label}
+                    </span>
+                    <span className="block text-xs" style={{ color: 'var(--forest-sage)' }}>
+                      {account.email}
+                    </span>
+                  </span>
+                  <span style={{ color: 'var(--steel-blue)' }}>→</span>
+                </button>
+              ))}
+            </div>
+            <div
+              className="mt-4 space-y-2 pt-4 text-[11px] leading-relaxed"
+              style={{ borderTop: '0.5px solid var(--sage-mist)', color: 'var(--forest-sage)' }}
+            >
+              <p>Pinterest-style feed with sustainability scoring.</p>
+              <p>Pin items to boards, track your carbon savings.</p>
+              <p>Works offline — mock data always available.</p>
+            </div>
+          </div>
         </div>
-      </section>
-
-      <section className="panel overflow-hidden">
-        <div className="titlebar">
-          <span>status_panel.exe</span>
-          <span className="text-[10px] uppercase tracking-[0.25em]">demo invariant</span>
-        </div>
-        <div className="pixel-bar" />
-        <div className="space-y-4 p-6 text-sm leading-7 text-text-silver">
-          <p>Feed stays populated even if live search is offline.</p>
-          <p>ECO badges always render using cached or heuristic scores.</p>
-          <p>Three demo personas are already seeded, so the story loop starts immediately.</p>
-        </div>
-      </section>
-    </div>
+      </div>
+    </GlowBackground>
   )
 }
 
@@ -297,11 +327,6 @@ export function FeedPage(): JSX.Element {
     queryFn: () => getPinnedProductIds(user!.id),
     enabled: Boolean(user),
   })
-  const preferenceQuery = useQuery({
-    queryKey: ['style-preference', user?.id],
-    queryFn: () => getStylePreference(user!.id),
-    enabled: Boolean(user),
-  })
   const sustainabilityQuery = useQuery({
     queryKey: ['sustainability', selectedProduct?.id],
     queryFn: () => getSustainabilityLocal(selectedProduct!),
@@ -334,56 +359,38 @@ export function FeedPage(): JSX.Element {
   const pinnedIds = new Set(pinnedIdsQuery.data ?? [])
 
   return (
-    <div className="space-y-5">
-      <section className="panel overflow-hidden">
-        <div className="titlebar">
-          <span>feed.exe</span>
-          <span className="text-[10px] uppercase tracking-[0.25em]">personalized archive</span>
-        </div>
-        <div className="pixel-bar" />
-        <div className="space-y-4 p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.28em] text-text-silver">Current profile</p>
-              <h1 className="text-2xl text-text-dark">
-                {preferenceQuery.data?.style_tags.join(' / ') || 'Sustainable secondhand staples'}
-              </h1>
-              <p className="mt-1 text-sm text-text-silver">
-                {preferenceQuery.data?.style_text ?? 'Mock-backed feed is ready while backend wiring catches up.'}
-              </p>
-            </div>
-            <div className="panel-flat flex gap-3 p-3 text-xs uppercase tracking-[0.24em] text-text-silver">
-              <span>{products.length} cached finds</span>
-              <span>{feedQuery.hasNextPage ? 'more pages ready' : 'end of archive'}</span>
-            </div>
-          </div>
+    <div>
+      <div className="feed-header">
+        <span className="feed-title">+ PICKED FOR YOU — {products.length} ITEMS</span>
+        <span className="feed-hint">click to explore ·  ★ to pin</span>
+      </div>
 
-          <div className="flex flex-wrap gap-2">
-            {RETAILER_OPTIONS.map((option) => (
-              <button
-                className={option === retailer ? 'chip chip-active' : 'chip'}
-                key={option}
-                onClick={() => {
-                  const params = new URLSearchParams(searchParams)
-                  if (option === 'all') params.delete('retailer')
-                  else params.set('retailer', option)
-                  setSearchParams(params)
-                }}
-                type="button"
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
+      <div className="flex flex-wrap gap-2 mb-5">
+        {RETAILER_OPTIONS.map((option) => (
+          <button
+            className={option === retailer ? 'chip chip-active' : 'chip'}
+            key={option}
+            onClick={() => {
+              const params = new URLSearchParams(searchParams)
+              if (option === 'all') params.delete('retailer')
+              else params.set('retailer', option)
+              setSearchParams(params)
+            }}
+            type="button"
+          >
+            {option}
+          </button>
+        ))}
+      </div>
 
       {feedQuery.isError ? (
         <div className="panel p-6 text-sm text-red">
           {feedQuery.error instanceof Error ? feedQuery.error.message : 'Unable to load recommendations.'}
         </div>
       ) : feedQuery.isLoading ? (
-        <div className="panel p-6 text-sm text-text-silver">Loading the thrift cloud...</div>
+        <div className="panel p-6 text-sm" style={{ color: 'var(--forest-sage)' }}>
+          Loading...
+        </div>
       ) : (
         <>
           <MasonryGrid>
@@ -398,15 +405,15 @@ export function FeedPage(): JSX.Element {
             ))}
           </MasonryGrid>
 
-          <div className="flex justify-center">
+          <div className="flex justify-center mt-6">
             {feedQuery.hasNextPage ? (
               <button className="btn-secondary" onClick={() => void feedQuery.fetchNextPage()} type="button">
-                LOAD_MORE
+                LOAD MORE
               </button>
             ) : (
-              <div className="panel-flat px-4 py-2 text-xs uppercase tracking-[0.24em] text-text-silver">
-                Archive fully indexed
-              </div>
+              <span className="text-[10px] uppercase tracking-[0.24em]" style={{ color: 'var(--forest-sage)' }}>
+                End of archive
+              </span>
             )}
           </div>
         </>
