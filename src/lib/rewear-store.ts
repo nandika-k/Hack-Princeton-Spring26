@@ -1,6 +1,6 @@
 import { supabase } from '../integrations/supabase/client'
 import { MOCK_PRODUCTS } from './mockProducts'
-import { extractListingPrice, filterValidatedListings, normalizeListingImageUrls, normalizeListingPrice } from './listingValidation'
+import { extractRetailerListingPrice, filterValidatedListings, normalizeListingImageUrls, normalizeListingPrice } from './listingValidation'
 import type { Board, Pin } from '../types/board'
 import type { Product, SustainabilityResult } from '../types/product'
 import type { Profile, StylePreference } from '../types/profile'
@@ -112,14 +112,14 @@ function normalizeStylePreference(row: StylePreference | null): StylePreference 
 }
 
 function normalizeProduct(product: Product): Product {
-  const fallbackPrice = extractListingPrice(product.title, product.description)
+  const fallbackPrice = extractRetailerListingPrice(product.retailer ?? null, product.title, product.description)
 
   return {
     ...product,
     description: product.description ?? null,
     price: normalizeListingPrice(product.price) ?? fallbackPrice.price,
     currency: product.currency ?? fallbackPrice.currency ?? 'USD',
-    image_urls: normalizeListingImageUrls(product.image_urls, product.retailer ?? undefined),
+    image_urls: normalizeListingImageUrls(product.image_urls, product.retailer ?? undefined, product.product_url),
     metadata: product.metadata ?? null,
     last_updated: product.last_updated ?? new Date().toISOString(),
   }

@@ -1,12 +1,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import { filterValidatedListings } from '../../../src/lib/listingValidation.ts'
+import { buildRecommendationQuery } from '../../../src/lib/recommendationQuery.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
-
-const DEFAULT_QUERY = 'sustainable secondhand vintage clothing'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -34,7 +33,7 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      const query = buildQuery(null, search)
+      const query = buildRecommendationQuery(null, search)
       const products = await fetchProducts(supabase, query, page, search, retailer)
       return new Response(JSON.stringify(products), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -47,7 +46,7 @@ Deno.serve(async (req) => {
       .eq('user_id', user.id)
       .maybeSingle()
 
-    let query = buildQuery(null, search)
+    let query = buildRecommendationQuery(null, search)
 
     if (profile) {
       const { data: prefs } = await supabase
@@ -56,7 +55,7 @@ Deno.serve(async (req) => {
         .eq('profile_id', profile.id)
         .maybeSingle()
 
-      query = buildQuery(prefs, search)
+      query = buildRecommendationQuery(prefs, search)
     }
 
     const products = await fetchProducts(supabase, query, page, search, retailer)
@@ -100,20 +99,6 @@ async function fetchProducts(
     console.warn('[getRecommendations] live recommendations unavailable:', err)
     return []
   }
-}
-
-function buildQuery(
-  prefs: { style_tags: string[] | null; occasions: string[] | null } | null,
-  search: string,
-): string {
-  const parts = [
-    search.trim(),
-    ...(prefs?.style_tags ?? []),
-    ...(prefs?.occasions ?? []).map((occasion) => `${occasion} outfit`),
-    DEFAULT_QUERY,
-  ].filter(Boolean)
-
-  return parts.slice(0, 5).join(' ')
 }
 
 function filterProducts(products: any[], search: string, retailer: string | null): any[] {
