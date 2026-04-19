@@ -151,9 +151,15 @@ export function ProductDetailModal({
               <button className="btn-save btn-save-wide" onClick={onSave} type="button">
                 SAVE_IT
               </button>
-              <a className="btn-secondary" href={productLookupUrl} rel="noreferrer" target="_blank">
-                OPEN
-              </a>
+              {productLookupUrl ? (
+                <a className="btn-secondary" href={productLookupUrl} rel="noreferrer" target="_blank">
+                  OPEN
+                </a>
+              ) : (
+                <span className="btn-secondary opacity-60 pointer-events-none">
+                  LISTING_UNAVAILABLE
+                </span>
+              )}
             </div>
           </div>
         </div>

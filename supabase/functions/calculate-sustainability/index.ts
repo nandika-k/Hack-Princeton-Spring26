@@ -82,11 +82,10 @@ Deno.serve(async (req) => {
 
     if (canReuseCachedScore(product, PRODUCT_SCRAPE_VERSION)) {
       const score = product.sustainability_score ?? 0
-      const explanation = product.score_explanation ?? 'Cached sustainability score.'
       return new Response(JSON.stringify({
         score,
-        explanation,
-        reasoning: explanation,
+        explanation: product.score_explanation,
+        reasoning: product.score_explanation,
         comparison: buildComparison(score),
         carbon_kg: carbonKg(score),
         fabric_type: extractFabric(`${product.title} ${product.description ?? ''}`),
@@ -123,9 +122,10 @@ Deno.serve(async (req) => {
     if (updateError) {
       throw updateError
     }
+
     const score = ifmResult.score
     return new Response(JSON.stringify({
-      score: ifmResult.score,
+      score,
       explanation: ifmResult.explanation,
       reasoning: ifmResult.reasoning,
       comparison: buildComparison(score),

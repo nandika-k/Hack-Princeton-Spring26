@@ -21,6 +21,17 @@ type TavilyExtractResult = {
   favicon?: string
 }
 
+export type ListingUrlDecision = {
+  isListing: boolean
+  reason: string
+}
+
+export type ListingContentDecision = {
+  isListing: boolean
+  reason: string
+  signalCount: number
+}
+
 type RankedCandidate = {
   retailer: string
   domain: string
@@ -30,6 +41,7 @@ type RankedCandidate = {
   rawContent: string
   score: number | null
   images: string[]
+  urlDecision: ListingUrlDecision
   rankingScore: number
 }
 
@@ -50,7 +62,8 @@ type ProductFieldKey =
   | 'source_search_url'
   | 'source_domain'
 
-export const PRODUCT_SCRAPE_VERSION = 2
+export const PRODUCT_SCRAPE_VERSION = 3
+export const NON_LISTING_SCRAPE_STATUS = 'rejected_non_listing'
 
 export const RETAILERS: RetailerConfig[] = [
   { name: 'depop', domain: 'depop.com' },
@@ -100,12 +113,40 @@ const LISTING_PATH_HINTS: Record<string, string[]> = {
 
 const LISTING_QUERY_KEYS = ['id', 'item', 'itemid', 'listingid', 'object_id', 'sku']
 const GENERIC_TITLE_PATTERNS = [/^(home|shop|women|men|search|browse)$/i, /\b(sign in|log in)\b/i]
+const REJECTED_FILE_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.zip', '.json', '.xml']
+const URL_REJECT_MARKERS = [
+  'download',
+  'attachment',
+  'asset',
+  'file',
+  'catalog',
+  'lookbook',
+  'brochure',
+  'manual',
+  'spec',
+  'media',
+  'size guide',
+  'privacy',
+  'terms',
+  'returns',
+]
 const BRAND_LABEL_PATTERNS = [
   /(?:^|\n)\s*(?:brand|designer)\s*[:|-]\s*([^\n|]{2,60})/i,
   /(?:^|\n)\s*(?:from the brand|label)\s*[:|-]\s*([^\n|]{2,60})/i,
 ]
 const BY_BRAND_PATTERN = /\bby\s+([A-Z][A-Za-z0-9&.'\-]*(?:\s+[A-Z][A-Za-z0-9&.'\-]*){0,3})\b/
 const TITLE_SEPARATORS = ['|', ' - ', ' – ', ' — ', ' · ', ': ']
+
+const CONTENT_REJECT_PATTERNS = [
+  /\b(?:download|attachment)\b.{0,24}\b(?:pdf|catalog|lookbook|brochure|manual)\b/i,
+  /\b(?:catalog|lookbook|brochure|manual|press kit|media kit)\b/i,
+  /\bprivacy policy\b/i,
+  /\bcookie policy\b/i,
+  /\bterms (?:and conditions|of service|of use)\b/i,
+  /\breturns? (?:policy|center|portal)\b/i,
+  /\bsize guide\b/i,
+  /\bshipping policy\b/i,
+]
 
 export async function fetchRetailerProducts(
   query: string,
@@ -161,8 +202,9 @@ export async function rescrapeProduct(
   ])
 
   const preferredCandidates = preferredUrls
-    .filter((url) => isLikelyListingUrl(url, retailer))
-    .map((url, index) => ({
+    .map((url) => ({ url, decision: classifyListingUrl(url, retailer) }))
+    .filter(({ decision }) => decision.isListing)
+    .map(({ url, decision }, index) => ({
       retailer,
       domain,
       url,
@@ -171,6 +213,7 @@ export async function rescrapeProduct(
       rawContent: '',
       score: null,
       images: product.image_urls ?? [],
+      urlDecision: decision,
       rankingScore: 1000 - index,
     }))
 
@@ -261,42 +304,103 @@ export function didCoreProductFieldsChange(existing: Product, nextProduct: Produ
   return fields.some((field) => !areValuesEqual(existing[field], nextProduct[field]))
 }
 
-export function isLikelyListingUrl(rawUrl: string | null | undefined, retailer: string): boolean {
+export function classifyListingUrl(rawUrl: string | null | undefined, retailer: string): ListingUrlDecision {
   const url = parseUrl(rawUrl)
   if (!url) {
-    return false
+    return { isListing: false, reason: 'invalid_url' }
   }
 
   const normalizedRetailer = retailer.trim().toLowerCase()
   const expectedDomain = RETAILER_DOMAINS[normalizedRetailer]
   if (expectedDomain && !url.hostname.toLowerCase().includes(expectedDomain)) {
-    return false
+    return { isListing: false, reason: 'wrong_retailer_domain' }
   }
 
   const pathname = url.pathname.toLowerCase()
-  const segments = pathname.split('/').filter(Boolean)
+  const normalizedPath = normalizeUrlFragment(pathname)
+  const normalizedSearch = normalizeUrlFragment(url.search)
+  const normalizedHash = normalizeUrlFragment(url.hash)
+  const combinedUrlText = [normalizedPath, normalizedSearch, normalizedHash].filter(Boolean).join(' ')
+
+  const matchedExtension = REJECTED_FILE_EXTENSIONS.find((extension) => pathname.endsWith(extension))
+  if (matchedExtension) {
+    return { isListing: false, reason: `rejected_file_extension:${matchedExtension}` }
+  }
+
+  const matchedMarker = URL_REJECT_MARKERS.find((marker) => containsUrlMarker(combinedUrlText, marker))
+  if (matchedMarker) {
+    return { isListing: false, reason: `rejected_url_marker:${matchedMarker.replace(/\s+/g, '_')}` }
+  }
+
+  const segments = normalizedPath.split('/').filter(Boolean)
 
   if (LISTING_PATH_HINTS[normalizedRetailer]?.some((hint) => pathname.includes(hint))) {
-    return true
+    return { isListing: true, reason: 'listing_path_hint' }
   }
 
-  if (segments.length === 0) {
-    return false
-  }
-
-  if (segments.length === 1 && GENERIC_PATH_SEGMENTS.has(segments[0])) {
-    return false
+  if (LISTING_QUERY_KEYS.some((key) => url.searchParams.has(key))) {
+    return { isListing: true, reason: 'listing_query_key' }
   }
 
   if (segments.some((segment) => /\d/.test(segment))) {
-    return true
+    return { isListing: true, reason: 'numeric_path_segment' }
   }
 
   if (segments.length >= 3 && segments[segments.length - 1].includes('-')) {
-    return true
+    return { isListing: true, reason: 'listing_slug_path' }
   }
 
-  return LISTING_QUERY_KEYS.some((key) => url.searchParams.has(key))
+  if (segments.length === 0) {
+    return { isListing: false, reason: 'missing_path_segments' }
+  }
+
+  if (segments.length === 1 && GENERIC_PATH_SEGMENTS.has(segments[0])) {
+    return { isListing: false, reason: 'generic_path_segment' }
+  }
+
+  return { isListing: false, reason: 'no_listing_indicators' }
+}
+
+export function isLikelyListingUrl(rawUrl: string | null | undefined, retailer: string): boolean {
+  return classifyListingUrl(rawUrl, retailer).isListing
+}
+
+export function validateListingPageContent(
+  title: string,
+  extractedText: string,
+  fallbackContent = '',
+): ListingContentDecision {
+  const normalizedText = collapseWhitespace(extractedText)
+  if (!normalizedText) {
+    return { isListing: false, reason: 'missing_extracted_content', signalCount: 0 }
+  }
+
+  const normalizedTitle = cleanTitle(title)
+  if (!normalizedTitle || isGenericTitle(normalizedTitle)) {
+    return { isListing: false, reason: 'generic_title', signalCount: 0 }
+  }
+
+  const rejectPattern = CONTENT_REJECT_PATTERNS.find((pattern) => pattern.test(normalizedText))
+  if (rejectPattern) {
+    return { isListing: false, reason: `rejected_content_pattern:${rejectPattern.source}`, signalCount: 0 }
+  }
+
+  const signalCount = countItemSignals(`${normalizedTitle}\n${normalizedText}\n${fallbackContent}`)
+  if (signalCount < 2) {
+    return { isListing: false, reason: 'insufficient_item_signals', signalCount }
+  }
+
+  return { isListing: true, reason: 'listing_content_validated', signalCount }
+}
+
+export function isProductListingVisible(
+  product: Pick<Product, 'product_url' | 'retailer' | 'scrape_status'>,
+): boolean {
+  if ((product.scrape_status ?? '').trim().toLowerCase() === NON_LISTING_SCRAPE_STATUS) {
+    return false
+  }
+
+  return classifyListingUrl(product.product_url, product.retailer).isListing
 }
 
 export function buildProductSearchUrl(retailer: string, title: string): string {
@@ -365,7 +469,12 @@ async function extractCandidateUrls(
   const results = Array.isArray(payload.results) ? payload.results : []
   const extractedByUrl = new Map<string, TavilyExtractResult>()
 
-  for (const result of results) {
+  for (const [index, result] of results.entries()) {
+    const requestedUrl = uniqueUrls[index]
+    if (requestedUrl) {
+      extractedByUrl.set(requestedUrl, result)
+    }
+
     if (typeof result?.url === 'string' && result.url.trim()) {
       extractedByUrl.set(result.url.trim(), result)
     }
@@ -392,11 +501,11 @@ function rankCandidates(
         const rawContent = typeof result.raw_content === 'string' ? result.raw_content.trim() : ''
         const score = typeof result.score === 'number' ? result.score : null
         const images = Array.isArray(result.images) ? result.images.filter(isHttpUrl) : []
-        const listing = isLikelyListingUrl(url, retailer)
+        const urlDecision = classifyListingUrl(url, retailer)
         const itemSignals = countItemSignals(`${title}\n${content}\n${rawContent}`)
 
         let rankingScore = (score ?? 0) * 100
-        rankingScore += listing ? 60 : -60
+        rankingScore += urlDecision.isListing ? 60 : -60
         rankingScore += itemSignals * 10
         rankingScore += images.length > 0 ? 8 : 0
         rankingScore += isGenericTitle(title) ? -12 : 10
@@ -410,11 +519,12 @@ function rankCandidates(
           rawContent,
           score,
           images,
+          urlDecision,
           rankingScore,
         }
       })
       .filter((candidate): candidate is RankedCandidate => candidate !== null)
-      .filter((candidate) => isLikelyListingUrl(candidate.url, retailer))
+      .filter((candidate) => candidate.urlDecision.isListing)
       .sort((left, right) => right.rankingScore - left.rankingScore),
   )
 }
@@ -432,19 +542,23 @@ function buildProductFromCandidate(
     priorImages?: string[]
   },
 ): BuiltProduct | null {
-  const extractedUrl = typeof extracted?.url === 'string' ? extracted.url.trim() : candidate.url
-  const canonicalUrl = isLikelyListingUrl(extractedUrl, candidate.retailer)
-    ? extractedUrl
-    : isLikelyListingUrl(candidate.url, candidate.retailer)
-      ? candidate.url
-      : null
+  if (!extracted || typeof extracted.url !== 'string' || !extracted.url.trim()) {
+    return null
+  }
 
-  if (!canonicalUrl) {
+  const extractedUrl = extracted.url.trim()
+  const extractedUrlDecision = classifyListingUrl(extractedUrl, candidate.retailer)
+  if (!candidate.urlDecision.isListing || !extractedUrlDecision.isListing) {
     return null
   }
 
   const extractedText = typeof extracted?.raw_content === 'string' ? extracted.raw_content : ''
   const title = deriveTitle(candidate.title, extractedText, options.fallbackTitle)
+  const contentDecision = validateListingPageContent(title, extractedText, candidate.content)
+  if (!contentDecision.isListing) {
+    return null
+  }
+
   const brandMatch = deriveBrand(extractedText, title, options.priorBrand ?? null)
   const description = deriveDescription(extractedText, candidate.content, options.priorDescription ?? null)
   const priceInfo = extractPriceInfo(candidate.title, candidate.content, extractedText)
@@ -472,7 +586,7 @@ function buildProductFromCandidate(
     price: priceInfo.price,
     currency: priceInfo.currency,
     image_urls: imageUrls,
-    product_url: canonicalUrl,
+    product_url: extractedUrl,
     source_search_url: candidate.url,
     source_domain: candidate.domain,
     scrape_status: 'scraped',
@@ -483,12 +597,16 @@ function buildProductFromCandidate(
     score_version: 0,
     metadata: {
       source_url: candidate.url,
-      lookup_url: canonicalUrl,
+      lookup_url: extractedUrl,
       selected_candidate_url: candidate.url,
       candidate_urls: options.candidateUrls.slice(0, 5),
       source_score: candidate.score,
       url_quality: 'listing',
-      extraction_source: extracted ? 'tavily_extract' : 'search_only',
+      source_url_reason: candidate.urlDecision.reason,
+      resolved_url_reason: extractedUrlDecision.reason,
+      content_validation_reason: contentDecision.reason,
+      listing_signal_count: contentDecision.signalCount,
+      extraction_source: 'tavily_extract',
       field_sources: fieldSources,
       favicon: extracted?.favicon ?? null,
     },
@@ -651,6 +769,8 @@ function countItemSignals(text: string): number {
   if (/\bsize\b|\bus\b|\buk\b|\beu\b/.test(normalized)) signals += 1
   if (/\b(vintage|preloved|pre-loved|condition|nwt|used)\b/.test(normalized)) signals += 1
   if (/\b(dress|jeans|skirt|coat|bag|boots|shirt|blazer|jacket|sweater)\b/.test(normalized)) signals += 1
+  if (/\b(shipping|ships|delivery|dispatch|tracking)\b/.test(normalized)) signals += 1
+  if (/\b(measurements?|material|fabric|item details?|sku|style number|pit to pit|inseam|waist)\b/.test(normalized)) signals += 1
 
   return signals
 }
@@ -727,6 +847,27 @@ function truncate(value: string, maxLength: number): string {
   }
 
   return `${value.slice(0, maxLength - 1).trim()}...`
+}
+
+function normalizeUrlFragment(value: string): string {
+  return safeDecode(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function containsUrlMarker(text: string, marker: string): boolean {
+  const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')
+  return new RegExp(`(^|[\\s/])${escapedMarker}([\\s/]|$)`, 'i').test(text)
 }
 
 function isSameRetailerDomain(rawUrl: string, domain: string): boolean {

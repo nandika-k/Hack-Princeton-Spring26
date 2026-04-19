@@ -1,6 +1,6 @@
 import { supabase } from '../integrations/supabase/client'
 import { MOCK_PRODUCTS } from './mockProducts'
-import { PRODUCT_SCRAPE_VERSION } from './product-scrape'
+import { isProductListingVisible, PRODUCT_SCRAPE_VERSION } from './product-scrape'
 import { PRODUCT_SCORE_VERSION } from './product-score'
 import type { Board, Pin } from '../types/board'
 import type { Product, SustainabilityResult } from '../types/product'
@@ -131,10 +131,15 @@ function normalizeProduct(product: Product): Product {
   }
 }
 
-function normalizePin(pin: Pin): Pin {
+function normalizePin(pin: Pin): Pin | null {
+  const normalizedProduct = normalizeProduct(pin.product_data)
+  if (!isProductListingVisible(normalizedProduct)) {
+    return null
+  }
+
   return {
     ...pin,
-    product_data: normalizeProduct(pin.product_data),
+    product_data: normalizedProduct,
   }
 }
 
@@ -473,11 +478,16 @@ export async function getSustainabilityLocal(product: string | Product): Promise
     })
   } catch (error) {
     if (inputProduct) {
+      const description = inputProduct.description ?? ''
+      const score = inputProduct.sustainability_score ?? 65
       return {
-        score: inputProduct.sustainability_score ?? 65,
+        score,
         explanation: inputProduct.score_explanation ?? 'Fallback sustainability estimate from local product data.',
         reasoning: inputProduct.score_explanation ?? 'Local backend scoring was unavailable, so the UI is showing a cached estimate.',
         comparison: 'Estimated locally while the backend score warms up.',
+        carbon_kg: score >= 70 ? Math.round(score * 0.3) : score >= 40 ? Math.round(score * 0.15) : 2,
+        fabric_type: inferFabricFromDescription(description),
+        condition: inferConditionFromDescription(description),
       }
     }
 
@@ -550,11 +560,17 @@ export async function listPins(userId: string, boardId?: string): Promise<Pin[]>
     throw new Error(error.message)
   }
 
-  return ((data ?? []) as Pin[]).map((pin) => normalizePin(pin))
+  return ((data ?? []) as Pin[])
+    .map((pin) => normalizePin(pin))
+    .filter((pin): pin is Pin => pin !== null)
 }
 
 export async function addPinToBoard(userId: string, boardId: string, product: Product): Promise<Pin> {
   const normalizedProduct = normalizeProduct(product)
+  if (!isProductListingVisible(normalizedProduct)) {
+    throw new Error('Only real product listings can be pinned.')
+  }
+
   const existingPins = await listPins(userId, boardId)
 
   if (existingPins.some((pin) => pin.product_id === normalizedProduct.id)) {
@@ -579,7 +595,12 @@ export async function addPinToBoard(userId: string, boardId: string, product: Pr
     throw new Error(error.message)
   }
 
-  return normalizePin(data as Pin)
+  const normalizedPin = normalizePin(data as Pin)
+  if (!normalizedPin) {
+    throw new Error('Only real product listings can be pinned.')
+  }
+
+  return normalizedPin
 }
 
 export async function removePinFromBoard(userId: string, pinId: string): Promise<void> {
@@ -595,44 +616,50 @@ export async function removePinFromBoard(userId: string, pinId: string): Promise
 }
 
 export async function getPinnedProductIds(userId: string): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('pins')
-    .select('product_id')
-    .eq('profile_id', userId)
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return Array.from(new Set((data ?? []).map((entry) => entry.product_id)))
+  const pins = await listPins(userId)
+  return Array.from(new Set(pins.map((pin) => pin.product_id)))
 }
 
 export async function getAccountSnapshot(userId: string): Promise<AccountSnapshot> {
-  const [{ count: boardCount, error: boardsError }, { count: pinCount, error: pinsError }] = await Promise.all([
+  const [{ count: boardCount, error: boardsError }, pins] = await Promise.all([
     supabase
       .from('boards')
       .select('id', { count: 'exact', head: true })
       .eq('profile_id', userId),
-    supabase
-      .from('pins')
-      .select('id', { count: 'exact', head: true })
-      .eq('profile_id', userId),
+    listPins(userId),
   ])
 
   if (boardsError) {
     throw new Error(boardsError.message)
   }
 
-  if (pinsError) {
-    throw new Error(pinsError.message)
-  }
-
   return {
     boards: boardCount ?? 0,
-    pins: pinCount ?? 0,
+    pins: pins.length,
   }
 }
 
 export function getDemoCredentials(): typeof DEMO_LOGINS {
   return DEMO_LOGINS
+}
+
+function inferConditionFromDescription(text: string): string | null {
+  const normalized = text.toLowerCase()
+  if (normalized.includes('new with tags') || normalized.includes('nwt')) return 'New w/ Tags'
+  if (normalized.includes('excellent') || normalized.includes('mint')) return 'Excellent'
+  if (normalized.includes('good') || normalized.includes('great')) return 'Good'
+  if (normalized.includes('fair') || normalized.includes('worn') || normalized.includes('used')) return 'Fair'
+  return 'Good'
+}
+
+function inferFabricFromDescription(text: string): string | null {
+  const normalized = text.toLowerCase()
+  const fabrics = ['cashmere', 'wool', 'silk', 'linen', 'cotton', 'denim', 'polyester', 'viscose', 'rayon', 'nylon', 'spandex', 'leather', 'suede', 'velvet', 'corduroy', 'satin', 'chiffon']
+  for (const fabric of fabrics) {
+    if (normalized.includes(fabric)) {
+      return fabric.charAt(0).toUpperCase() + fabric.slice(1)
+    }
+  }
+
+  return null
 }

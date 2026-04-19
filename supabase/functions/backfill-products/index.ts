@@ -1,5 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import {
+  classifyListingUrl,
+  NON_LISTING_SCRAPE_STATUS,
   prepareProductForUpsert,
   PRODUCT_SCRAPE_VERSION,
   ProductRecord,
@@ -77,13 +79,15 @@ Deno.serve(async (req) => {
       const now = new Date().toISOString()
 
       try {
+        const currentUrlDecision = classifyListingUrl(product.product_url, product.retailer)
+        const rejectReason = currentUrlDecision.isListing ? 'no_recoverable_listing' : currentUrlDecision.reason
         const rescanned = await rescrapeProduct(product, tavilyKey, now)
         const refreshed = rescanned
           ? prepareProductForUpsert(product, rescanned, now)
-          : buildFailedRescrape(product, now)
+          : buildFailedRescrape(product, now, rejectReason)
 
         let finalProduct = refreshed
-        if (!canReuseCachedScore(finalProduct, PRODUCT_SCRAPE_VERSION)) {
+        if (finalProduct.scrape_status !== NON_LISTING_SCRAPE_STATUS && !canReuseCachedScore(finalProduct, PRODUCT_SCRAPE_VERSION)) {
           const dedalus = await fetchDedalusBrandAudit(
             finalProduct.retailer,
             finalProduct.brand ?? null,
@@ -233,16 +237,20 @@ async function refreshPins(
   return updated
 }
 
-function buildFailedRescrape(product: ProductRecord, now: string): ProductRecord {
+function buildFailedRescrape(product: ProductRecord, now: string, rejectReason: string): ProductRecord {
   return {
     ...product,
-    scrape_status: 'failed',
+    scrape_status: NON_LISTING_SCRAPE_STATUS,
     scrape_version: PRODUCT_SCRAPE_VERSION,
     scraped_at: now,
+    sustainability_score: null,
+    score_explanation: null,
+    score_version: 0,
     last_updated: now,
     metadata: {
       ...(isRecord(product.metadata) ? product.metadata : {}),
       backfill_error: 'Unable to recover a canonical listing URL',
+      url_reject_reason: rejectReason,
     },
   }
 }

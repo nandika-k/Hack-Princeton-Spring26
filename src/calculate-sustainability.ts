@@ -13,16 +13,18 @@ import type { SustainabilityResult } from './types/product'
 export async function calculateSustainability(productId: string): Promise<SustainabilityResult> {
   const product = await db.Product.findUnique({ where: { id: productId } })
   if (!product) throw new Error(`Product not found: ${productId}`)
-  if (!isProductListingVisible(product)) throw new Error('Product is not a valid listing')
+  if (!isProductListingVisible(product)) {
+    throw new Error('Product is not a valid listing')
+  }
 
   if (canReuseCachedScore(product, PRODUCT_SCRAPE_VERSION)) {
-    const score = product.sustainability_score ?? 0
-    const explanation = product.score_explanation ?? 'Cached sustainability score.'
+    const score = product.sustainability_score
     const text = `${product.title} ${product.description ?? ''}`.toLowerCase()
+
     return {
       score,
-      explanation,
-      reasoning: explanation,
+      explanation: product.score_explanation,
+      reasoning: product.score_explanation,
       comparison: buildComparison(score),
       carbon_kg: carbonKg(score),
       fabric_type: extractFabric(text),

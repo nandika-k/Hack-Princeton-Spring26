@@ -1,4 +1,5 @@
 import type { Product } from '../types/product'
+import { NON_LISTING_SCRAPE_STATUS } from './product-scrape'
 
 export const SECONDHAND_RETAILERS = new Set(['depop', 'vinted', 'thredup', 'vestiaire', 'ebay', 'whatnot'])
 export const K2_MODEL_ID = 'LLM360/K2-Think'
@@ -32,6 +33,7 @@ export type IFMOutput = {
 
 export function canReuseCachedScore(product: Product, currentScrapeVersion: number): boolean {
   return (
+    (product.scrape_status ?? '') !== NON_LISTING_SCRAPE_STATUS &&
     product.sustainability_score !== null &&
     product.score_explanation !== null &&
     (product.score_version ?? 0) === PRODUCT_SCORE_VERSION &&

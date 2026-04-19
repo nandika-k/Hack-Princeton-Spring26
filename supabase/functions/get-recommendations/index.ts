@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
+import { isProductListingVisible, type ProductRecord } from '../_shared/product-scrape.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -182,6 +183,10 @@ function filterProducts(products: any[], search: string, retailer: string | null
   const normalizedSearch = search.trim().toLowerCase()
 
   return products.filter((product) => {
+    if (!isProductListingVisible(product as ProductRecord)) {
+      return false
+    }
+
     if (retailer && product.retailer !== retailer) {
       return false
     }

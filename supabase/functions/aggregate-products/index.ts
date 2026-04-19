@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import {
   fetchRetailerProducts,
+  isProductListingVisible,
   prepareProductForUpsert,
   ProductRecord,
   RETAILERS,
@@ -70,7 +71,7 @@ Deno.serve(async (req) => {
         throw fallbackError
       }
 
-      return new Response(JSON.stringify(fallback ?? []), {
+      return new Response(JSON.stringify((fallback ?? []).filter((product) => isProductListingVisible(product as ProductRecord))), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
@@ -103,7 +104,9 @@ Deno.serve(async (req) => {
       throw upsertError
     }
 
-    const pageProducts = productsToUpsert.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+    const pageProducts = productsToUpsert
+      .filter((product) => isProductListingVisible(product))
+      .slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
     return new Response(JSON.stringify(pageProducts), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

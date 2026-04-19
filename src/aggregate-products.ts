@@ -1,4 +1,4 @@
-import { fetchRetailerProducts, prepareProductForUpsert, RETAILERS } from './lib/product-scrape'
+import { fetchRetailerProducts, isProductListingVisible, prepareProductForUpsert, RETAILERS } from './lib/product-scrape'
 import type { AggregateInput, Product } from './types/product'
 
 const PAGE_SIZE = 20
@@ -34,7 +34,7 @@ export async function aggregateProducts(input: AggregateInput): Promise<Product[
       offset: page * PAGE_SIZE,
     })
 
-    return fallback as Product[]
+    return (fallback as Product[]).filter((product) => isProductListingVisible(product))
   }
 
   const existing = await db.Product.findMany({
@@ -51,5 +51,7 @@ export async function aggregateProducts(input: AggregateInput): Promise<Product[
 
   await db.Product.upsertMany(upsertPayload)
 
-  return upsertPayload.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  return upsertPayload
+    .filter((product) => isProductListingVisible(product))
+    .slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 }
