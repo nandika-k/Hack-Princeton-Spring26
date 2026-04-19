@@ -112,7 +112,8 @@ function Navigation({
   return (
     <header className="reworn-topbar">
       <div className="reworn-topbar-inner">
-        <div className="reworn-logo">
+        <div className="reworn-logo flex items-center gap-3">
+          <img src="/src/images/EcoThread_Logo.png" alt="EcoThread" style={{ height: 32, width: 'auto' }} />
           EcoThread
         </div>
         <div className="flex items-center gap-4">

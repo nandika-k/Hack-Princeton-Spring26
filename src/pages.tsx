@@ -72,6 +72,12 @@ export function AuthPage(): JSX.Element {
       <div className="w-full max-w-4xl">
         {/* Logo */}
         <div className="mb-10 text-center">
+          <img
+            src="/src/images/EcoThread_Logo.png"
+            alt="EcoThread logo"
+            className="mx-auto mb-4"
+            style={{ height: 80, width: 'auto' }}
+          />
           <h1
             className="mb-2"
             style={{ fontSize: 28, letterSpacing: 8, color: 'var(--deep-navy)' }}
