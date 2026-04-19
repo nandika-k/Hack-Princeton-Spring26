@@ -4,8 +4,11 @@
 //
 // Run: bun run index.ts
 
+import { closeSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { Spectrum, text } from 'spectrum-ts'
 import { imessage } from 'spectrum-ts/providers/imessage'
+import { fileURLToPath } from 'node:url'
 
 const PHOTON_PROJECT_ID     = process.env.PHOTON_PROJECT_ID!
 const PHOTON_PROJECT_SECRET = process.env.PHOTON_PROJECT_SECRET!
@@ -19,9 +22,61 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY are required')
 }
 
+const LOCK_PATH = join(dirname(fileURLToPath(import.meta.url)), '.photon-bot.lock')
+
 type OwnershipAnswer = 'first-hand' | 'second-hand'
 
 const pendingOwnershipBySender = new Map<string, { score: number }>()
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function acquireBotLock(): void {
+  const writeLock = () => {
+    const fd = openSync(LOCK_PATH, 'wx')
+    writeFileSync(fd, String(process.pid))
+    closeSync(fd)
+  }
+
+  try {
+    writeLock()
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException
+    if (err.code !== 'EEXIST') throw error
+
+    const existingPid = Number.parseInt(readFileSync(LOCK_PATH, 'utf8').trim(), 10)
+    if (Number.isFinite(existingPid) && isProcessAlive(existingPid)) {
+      throw new Error(`Another Photon bot instance is already running (pid ${existingPid}).`)
+    }
+
+    rmSync(LOCK_PATH, { force: true })
+    writeLock()
+  }
+
+  const releaseLock = () => {
+    try {
+      rmSync(LOCK_PATH, { force: true })
+    } catch {
+      // Ignore lock cleanup failures during shutdown.
+    }
+  }
+
+  process.on('exit', releaseLock)
+  process.on('SIGINT', () => {
+    releaseLock()
+    process.exit(130)
+  })
+  process.on('SIGTERM', () => {
+    releaseLock()
+    process.exit(143)
+  })
+}
 
 function parseOwnershipAnswer(raw: string): OwnershipAnswer | null {
   const normalized = raw.trim().toLowerCase()
@@ -52,6 +107,8 @@ function buildOwnershipReply(score: number, ownership: OwnershipAnswer): string 
 
   return `Got it. If you're buying it first-hand, there isn't an extra resale CO2 saving versus buying new.\n${scoreLine}\n\nPowered by Photon AI`
 }
+
+acquireBotLock()
 
 const app = await Spectrum({
   projectId: PHOTON_PROJECT_ID,
