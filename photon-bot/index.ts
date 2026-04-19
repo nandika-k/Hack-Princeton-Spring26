@@ -45,22 +45,33 @@ for await (const [space, message] of app.messages) {
     }
   } else if (content.type === 'text') {
     const body = content.text?.trim().toLowerCase() ?? ''
+    const rawBody = content.text?.trim() ?? ''
 
     if (body === 'help' || body === 'hi' || body === 'hello' || body === '') {
       await space.send(
         text(
-          '👋 Photon AI — Sustainability Scanner\n\n' +
-          'Send a photo of any clothing tag or fabric label and I\'ll instantly score its ' +
-          'carbon footprint, materials, and sustainability.\n\n' +
+          '👋 Photon AI — Sustainability Scorer\n\n' +
+          'Text your brand + fabric composition and I\'ll score its sustainability.\n\n' +
+          'Examples:\n' +
+          '  • Patagonia, 100% recycled polyester\n' +
+          '  • brand: H&M fabric: 50% cotton 50% polyester\n' +
+          '  • Zara polyester\n\n' +
           '🌿 Score 70+  Highly sustainable\n' +
           '🟡 Score 40–69  Moderate\n' +
           '🔴 Score <40  Low sustainability',
         ),
       )
     } else {
-      await space.send(
-        text("Send me a photo of the clothing tag — I'll handle the rest. 📸"),
-      )
+      await space.send(responding())
+      try {
+        const result = await callAnalyzeText(rawBody, message.sender.id)
+        await space.send(text(result.formattedReply))
+      } catch (err) {
+        console.error('[Bot] analyze-text error:', err)
+        await space.send(
+          text('Could not score that. Try: "Brand, 100% fabric type"\nExample: "Patagonia, 100% recycled polyester"'),
+        )
+      }
     }
   }
 }
@@ -97,6 +108,38 @@ async function callAnalyzeTag(imageUrl: string, phoneNumber?: string): Promise<A
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(`analyze-tag ${res.status}: ${body.slice(0, 200)}`)
+  }
+
+  return res.json()
+}
+
+type AnalyzeTextResult = {
+  extraction: {
+    brand: string
+    materials: Array<{ name: string; percentage: number }>
+  }
+  score: number
+  explanation: string
+  reasoning: string
+  comparison: string
+  certifications: string[]
+  brandRating: string
+  formattedReply: string
+}
+
+async function callAnalyzeText(textQuery: string, phoneNumber?: string): Promise<AnalyzeTextResult> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/analyze-text`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text: textQuery, phoneNumber }),
+  })
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`analyze-text ${res.status}: ${body.slice(0, 200)}`)
   }
 
   return res.json()
