@@ -6,7 +6,7 @@
   "description": "Check sustainability scores on any shopping site. See where your clothes are made, what they're made of, and their carbon footprint.",
   "action": {
     "default_popup": "src/popup/index.html",
-    "default_title": "EcoThread — Sustainability Scanner"
+    "default_title": "EcoThread"
   },
   "background": {
     "service_worker": "service-worker-loader.js",

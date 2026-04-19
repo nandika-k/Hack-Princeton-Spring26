@@ -1,11 +1,12 @@
 // Photon AI — in-store tag scanner via iMessage/SMS
-// User texts a photo of a clothing tag to a Twilio number.
-// K2-Think v2 vision: extract brand/materials + score sustainability in one call.
+// Accepts either a clothing tag image OR brand + materials text typed from the label.
+// K2-Think v2: extract brand/materials + score sustainability in one call.
 // Dedalus brand audit runs in parallel to enrich certifications.
 //
 // Twilio MMS webhook: POST application/x-www-form-urlencoded
 //   From, Body, NumMedia, MediaUrl0, MediaContentType0
-// Direct API: POST application/json { imageUrl, phoneNumber? }
+// Direct API (image): POST application/json { imageUrl, phoneNumber? }
+// Direct API (text):  POST application/json { brand, materialsText, phoneNumber? }
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 
@@ -24,9 +25,10 @@ Deno.serve(async (req) => {
 
   try {
     const contentType = req.headers.get('content-type') ?? ''
-    let imageSource: string
     let phoneNumber: string | null = null
     let isTwilio = false
+    let analysisResult: K2VisionResult
+    let imageSourceForDb: string | null = null
 
     if (contentType.includes('application/x-www-form-urlencoded')) {
       isTwilio = true
@@ -38,33 +40,38 @@ Deno.serve(async (req) => {
         return twilioReply('Please send a photo of the clothing tag — no image was received.')
       }
 
-      imageSource = form.get('MediaUrl0') as string
+      const imageSource = form.get('MediaUrl0') as string
       if (!imageSource) {
         return twilioReply('Could not read the image. Please try again.')
       }
+
+      imageSourceForDb = imageSource
+      analysisResult = await analyzeTagWithK2Vision(imageSource)
     } else {
       const body = await req.json()
-      imageSource = body.imageDataUrl ?? body.imageUrl
       phoneNumber = body.phoneNumber ?? null
 
-      if (!imageSource) {
-        return new Response(
-          JSON.stringify({ error: 'imageUrl or imageDataUrl is required' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        )
+      if (body.materialsText !== undefined) {
+        // Text input path — user typed brand + fabric composition from the garment tags
+        const materialsText = (body.materialsText as string) ?? ''
+        const brand = (body.brand as string | undefined) ?? 'Unknown'
+        analysisResult = await analyzeTagWithText(brand, materialsText)
+      } else {
+        // Image input path
+        const imageSource: string = body.imageDataUrl ?? body.imageUrl
+        if (!imageSource) {
+          return new Response(
+            JSON.stringify({ error: 'Provide imageUrl/imageDataUrl or materialsText' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          )
+        }
+        imageSourceForDb = imageSource.startsWith('data:') ? '[inline-upload]' : imageSource
+        analysisResult = await analyzeTagWithK2Vision(imageSource)
       }
     }
 
-    // K2-Think v2 vision analysis (extract + score) runs first.
-    // Dedalus runs in parallel using 'Unknown' as placeholder —
-    // we replace it with the extracted brand once K2 responds.
-    const k2Promise = analyzeTagWithK2Vision(imageSource)
-
-    // Both settle concurrently; Dedalus is re-called with real brand if needed.
-    const k2Result = await k2Promise
-    const dedalus = await fetchDedalusBrandAudit(k2Result.brand)
-
-    const comparison = buildComparison(k2Result.score)
+    const dedalus = await fetchDedalusBrandAudit(analysisResult.brand)
+    const comparison = buildComparison(analysisResult.score)
 
     // Persist scan (best-effort, don't await)
     const supabase = createClient(
@@ -73,27 +80,27 @@ Deno.serve(async (req) => {
       { auth: { persistSession: false } },
     )
     supabase.from('tag_scans').insert({
-      image_url: imageSource.startsWith('data:') ? '[inline-upload]' : imageSource,
+      image_url: imageSourceForDb,
       phone_number: phoneNumber,
-      extracted_brand: k2Result.brand,
-      extracted_materials: k2Result.materials.map((m: MaterialComponent) => `${m.percentage}% ${m.name}`),
-      country_of_origin: k2Result.countryOfOrigin,
-      sustainability_score: k2Result.score,
-      score_explanation: k2Result.explanation,
+      extracted_brand: analysisResult.brand,
+      extracted_materials: analysisResult.materials.map((m: MaterialComponent) => `${m.percentage}% ${m.name}`),
+      country_of_origin: analysisResult.countryOfOrigin,
+      sustainability_score: analysisResult.score,
+      score_explanation: analysisResult.explanation,
     }).then(() => {}).catch(() => {})
 
     const extraction: TagExtraction = {
-      brand: k2Result.brand,
-      materials: k2Result.materials,
-      countryOfOrigin: k2Result.countryOfOrigin,
-      careInstructions: k2Result.careInstructions,
-      rawText: k2Result.rawText,
+      brand: analysisResult.brand,
+      materials: analysisResult.materials,
+      countryOfOrigin: analysisResult.countryOfOrigin,
+      careInstructions: analysisResult.careInstructions,
+      rawText: analysisResult.rawText,
     }
 
     const smsReply = buildSmsReply({
       extraction,
-      score: k2Result.score,
-      explanation: k2Result.explanation,
+      score: analysisResult.score,
+      explanation: analysisResult.explanation,
       comparison,
       certifications: dedalus.certifications,
     })
@@ -102,9 +109,9 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       extraction,
-      score: k2Result.score,
-      explanation: k2Result.explanation,
-      reasoning: k2Result.reasoning,
+      score: analysisResult.score,
+      explanation: analysisResult.explanation,
+      reasoning: analysisResult.reasoning,
       comparison,
       certifications: dedalus.certifications,
       brandRating: dedalus.brand_rating,
@@ -241,6 +248,105 @@ function visionFallback(): K2VisionResult {
     score: 50,
     explanation: 'Could not analyze tag — live K2-Think v2 scoring unavailable.',
     reasoning: 'K2-Think v2 endpoint unreachable; score is a neutral fallback.',
+  }
+}
+
+// ─── K2-Think v2 text: score from typed brand + materials ─────
+
+const K2_TEXT_SYSTEM_PROMPT = `You are a sustainable fashion expert. Given a brand name and fabric composition typed from a garment's tags, score the garment's sustainability.
+
+The fabric composition may be written in any format — structured percentages, shorthand, plain language, or a mix. Parse whatever is provided.
+
+Scoring guide:
+- 70–100: Highly sustainable (recycled/organic/natural fibers, ethical brand, certifications)
+- 40–69: Moderately sustainable
+- 0–39: Low sustainability (virgin synthetics, fast fashion)
+
+Material scoring signals:
+- Recycled Polyester / Recycled Nylon: strong positive (+15 vs virgin equivalent)
+- Organic Cotton, Tencel/Lyocell, Hemp, Linen: highly sustainable
+- Conventional Cotton: moderate (water-intensive cultivation)
+- Virgin Polyester, Nylon, Acrylic, Spandex: low sustainability
+- Wool, Silk: moderate (natural but resource-intensive)
+
+Brand context may also influence the score — ethical brands with strong sustainability programs score higher.
+Normalize fiber names: e.g. "POLY" → "Polyester", "REC. POLY" → "Recycled Polyester", "ORG. COTTON" → "Organic Cotton".
+If percentages are missing or don't sum to 100, estimate reasonable splits.
+
+After your step-by-step reasoning, output exactly one JSON object on its own line:
+{
+  "materials": [{"name": "<normalized fiber name>", "percentage": <0-100>}],
+  "score": <0-100>,
+  "explanation": "<one-sentence summary for a product card>",
+  "reasoning": "<2-3 sentence detail explaining the score>"
+}`
+
+async function analyzeTagWithText(brand: string, materialsText: string): Promise<K2VisionResult> {
+  const endpoint = Deno.env.get('IFM_API_URL')
+  if (!endpoint) return textFallback(brand, materialsText)
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${Deno.env.get('IFM_API_KEY') ?? 'dummy'}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: K2_V2_MODEL_ID,
+        messages: [
+          { role: 'system', content: K2_TEXT_SYSTEM_PROMPT },
+          { role: 'user', content: `Brand: ${brand}\nFabric composition: ${materialsText}` },
+        ],
+        max_tokens: 1024,
+        temperature: 0.3,
+      }),
+    })
+
+    if (!res.ok) {
+      console.warn(`[K2v2-text] ${res.status} — using fallback`)
+      return textFallback(brand, materialsText)
+    }
+
+    const data = await res.json()
+    const content: string = data.choices?.[0]?.message?.content ?? ''
+    if (!content) return textFallback(brand, materialsText)
+
+    const matches = content.match(/\{[\s\S]*?"score"[\s\S]*?\}/g)
+    if (!matches) return textFallback(brand, materialsText)
+
+    const parsed = JSON.parse(matches[matches.length - 1])
+    return {
+      brand,
+      materials: (parsed.materials ?? parseMaterialsText(materialsText)) as MaterialComponent[],
+      countryOfOrigin: null,
+      careInstructions: [],
+      rawText: materialsText,
+      score: parsed.score ?? 50,
+      explanation: parsed.explanation ?? 'Score estimated from fabric composition.',
+      reasoning: parsed.reasoning ?? parsed.explanation ?? '',
+    }
+  } catch (err) {
+    console.warn('[K2v2-text] error:', err)
+    return textFallback(brand, materialsText)
+  }
+}
+
+function parseMaterialsText(text: string): MaterialComponent[] {
+  const matches = [...text.matchAll(/(\d+(?:\.\d+)?)\s*%\s*([A-Za-z][A-Za-z\s]*)/g)]
+  return matches.map((m) => ({ percentage: parseFloat(m[1]), name: m[2].trim() }))
+}
+
+function textFallback(brand: string, materialsText: string): K2VisionResult {
+  return {
+    brand,
+    materials: parseMaterialsText(materialsText),
+    countryOfOrigin: null,
+    careInstructions: [],
+    rawText: materialsText,
+    score: 50,
+    explanation: 'Score estimated from fabric composition.',
+    reasoning: 'Text-based scoring — live K2-Think v2 unavailable; neutral fallback applied.',
   }
 }
 

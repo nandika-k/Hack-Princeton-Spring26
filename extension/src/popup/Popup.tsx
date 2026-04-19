@@ -76,7 +76,7 @@ export function Popup(): JSX.Element {
   return (
     <div>
       <div className="titlebar">
-        <span>EcoThread — Sustainability Scanner</span>
+        <span>EcoThread</span>
         <span>_ □ ×</span>
       </div>
       <div className="pixel-bar" />

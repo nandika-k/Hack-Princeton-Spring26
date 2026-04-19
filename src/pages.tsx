@@ -79,7 +79,7 @@ export function AuthPage(): JSX.Element {
             <p className="text-[11px] uppercase tracking-[0.3em] text-text-silver">HackPrinceton Spring 2026</p>
             <h1 className="text-4xl leading-tight text-text-dark">Discover secondhand looks with a bright, old-web pulse.</h1>
             <p className="text-sm leading-7 text-text-silver">
-              ReWear pairs a Pinterest-style feed with sustainability scoring, saved boards, and a glitchy Y2K desktop shell.
+              EcoThread pairs a Pinterest-style feed with sustainability scoring, saved boards, and a glitchy Y2K desktop shell.
             </p>
             <div className="panel-flat grid gap-3 p-4">
               <p className="text-[10px] uppercase tracking-[0.28em] text-text-silver">Demo accounts auto-bootstrap on first sign-in</p>
