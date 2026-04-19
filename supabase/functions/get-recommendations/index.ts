@@ -190,7 +190,7 @@ function filterProducts(products: any[], search: string, retailer: string | null
       return true
     }
 
-    const haystack = `${product.title ?? ''} ${product.description ?? ''} ${product.retailer ?? ''}`.toLowerCase()
+    const haystack = `${product.title ?? ''} ${product.description ?? ''} ${product.brand ?? ''} ${product.retailer ?? ''}`.toLowerCase()
     return haystack.includes(normalizedSearch)
   })
 }

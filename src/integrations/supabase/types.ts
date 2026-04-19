@@ -3188,6 +3188,7 @@ export type Database = {
       }
       products: {
         Row: {
+          brand: string | null
           currency: string | null
           description: string | null
           id: string
@@ -3197,11 +3198,18 @@ export type Database = {
           price: number | null
           product_url: string
           retailer: string
+          score_version: number
           score_explanation: string | null
+          scrape_status: string
+          scrape_version: number
+          scraped_at: string | null
+          source_domain: string | null
+          source_search_url: string | null
           sustainability_score: number | null
           title: string
         }
         Insert: {
+          brand?: string | null
           currency?: string | null
           description?: string | null
           id: string
@@ -3211,11 +3219,18 @@ export type Database = {
           price?: number | null
           product_url: string
           retailer: string
+          score_version?: number
           score_explanation?: string | null
+          scrape_status?: string
+          scrape_version?: number
+          scraped_at?: string | null
+          source_domain?: string | null
+          source_search_url?: string | null
           sustainability_score?: number | null
           title: string
         }
         Update: {
+          brand?: string | null
           currency?: string | null
           description?: string | null
           id?: string
@@ -3225,7 +3240,13 @@ export type Database = {
           price?: number | null
           product_url?: string
           retailer?: string
+          score_version?: number
           score_explanation?: string | null
+          scrape_status?: string
+          scrape_version?: number
+          scraped_at?: string | null
+          source_domain?: string | null
+          source_search_url?: string | null
           sustainability_score?: number | null
           title?: string
         }

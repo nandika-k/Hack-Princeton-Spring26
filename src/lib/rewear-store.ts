@@ -1,5 +1,7 @@
 import { supabase } from '../integrations/supabase/client'
 import { MOCK_PRODUCTS } from './mockProducts'
+import { PRODUCT_SCRAPE_VERSION } from './product-scrape'
+import { PRODUCT_SCORE_VERSION } from './product-score'
 import type { Board, Pin } from '../types/board'
 import type { Product, SustainabilityResult } from '../types/product'
 import type { Profile, StylePreference } from '../types/profile'
@@ -113,11 +115,18 @@ function normalizeStylePreference(row: StylePreference | null): StylePreference 
 function normalizeProduct(product: Product): Product {
   return {
     ...product,
+    brand: product.brand ?? null,
     description: product.description ?? null,
     price: product.price ?? null,
     currency: product.currency ?? 'USD',
     image_urls: product.image_urls ?? [],
     metadata: product.metadata ?? null,
+    source_search_url: product.source_search_url ?? null,
+    source_domain: product.source_domain ?? null,
+    scrape_status: product.scrape_status ?? 'pending',
+    scrape_version: product.scrape_version ?? PRODUCT_SCRAPE_VERSION,
+    scraped_at: product.scraped_at ?? null,
+    score_version: product.score_version ?? (product.sustainability_score !== null ? PRODUCT_SCORE_VERSION : 0),
     last_updated: product.last_updated ?? new Date().toISOString(),
   }
 }

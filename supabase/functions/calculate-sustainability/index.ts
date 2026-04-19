@@ -1,12 +1,18 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
+import { PRODUCT_SCRAPE_VERSION, ProductRecord } from '../_shared/product-scrape.ts'
+import {
+  buildComparison,
+  canReuseCachedScore,
+  fetchDedalusBrandAudit,
+  fetchIFMScore,
+  PRODUCT_SCORE_VERSION,
+  SECONDHAND_RETAILERS,
+} from '../_shared/product-score.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
-
-const SECONDHAND_RETAILERS = new Set(['depop', 'vinted', 'thredup', 'vestiaire', 'ebay', 'whatnot'])
-const K2_MODEL_ID = 'LLM360/K2-Think'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -19,17 +25,16 @@ Deno.serve(async (req) => {
     if (!productId) {
       return new Response(
         JSON.stringify({ error: 'productId is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-      { auth: { persistSession: false } }
+      { auth: { persistSession: false } },
     )
 
-    // Get product
     const { data: existingProduct, error: productError } = await supabase
       .from('products')
       .select('*')
@@ -37,13 +42,10 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     if (productError) {
-      return new Response(
-        JSON.stringify({ error: getErrorMessage(productError) }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      throw productError
     }
 
-    let product = existingProduct
+    let product = existingProduct as ProductRecord | null
 
     if (!product && providedProduct) {
       const normalizedProduct = normalizeInputProduct(providedProduct, productId)
@@ -51,63 +53,64 @@ Deno.serve(async (req) => {
         .from('products')
         .upsert({
           ...normalizedProduct,
-          last_updated: new Date().toISOString(),
           metadata: normalizedProduct.metadata ?? null,
+          last_updated: new Date().toISOString(),
         })
         .select('*')
         .single()
 
       if (insertError) {
-        return new Response(
-          JSON.stringify({ error: getErrorMessage(insertError) }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
+        throw insertError
       }
 
-      product = insertedProduct
+      product = insertedProduct as ProductRecord
     }
 
     if (!product) {
       return new Response(
         JSON.stringify({ error: `Product not found: ${productId}` }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
 
-    // Return cached score if exists.
-    if (product.sustainability_score !== null && product.score_explanation !== null) {
+    if (canReuseCachedScore(product, PRODUCT_SCRAPE_VERSION)) {
       return new Response(JSON.stringify({
         score: product.sustainability_score,
         explanation: product.score_explanation,
         reasoning: product.score_explanation,
-        comparison: buildComparison(product.sustainability_score),
+        comparison: buildComparison(product.sustainability_score ?? 0),
       }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Step 1: Dedalus brand audit.
-    const dedalus = await fetchDedalusBrandAudit(product.retailer, product.title)
-
-    // Step 2: K2-Think scoring.
+    const dedalus = await fetchDedalusBrandAudit(product.retailer, product.brand, product.title)
     const ifmResult = await fetchIFMScore({
       title: product.title,
       description: product.description ?? '',
       retailer: product.retailer,
+      brand: product.brand ?? null,
+      productUrl: product.product_url,
+      sourceDomain: product.source_domain ?? null,
+      scrapeStatus: product.scrape_status ?? null,
       isSecondhand: SECONDHAND_RETAILERS.has(product.retailer),
       brandRating: dedalus.brand_rating,
       certifications: dedalus.certifications,
       brandNotes: dedalus.notes,
     })
 
-    // Step 3: Persist result.
-    await supabase
+    const { error: updateError } = await supabase
       .from('products')
       .update({
         sustainability_score: ifmResult.score,
         score_explanation: ifmResult.explanation,
+        score_version: PRODUCT_SCORE_VERSION,
       })
       .eq('id', productId)
+
+    if (updateError) {
+      throw updateError
+    }
 
     return new Response(JSON.stringify({
       score: ifmResult.score,
@@ -115,164 +118,42 @@ Deno.serve(async (req) => {
       reasoning: ifmResult.reasoning,
       comparison: buildComparison(ifmResult.score),
     }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
-
   } catch (error) {
     console.error('Error in calculate-sustainability:', error)
     return new Response(
       JSON.stringify({ error: getErrorMessage(error) }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   }
 })
 
-// Dedalus Labs brand audit
-async function fetchDedalusBrandAudit(retailer: string, productTitle: string): Promise<any> {
-  const apiKey = Deno.env.get('DEDALUS_API_KEY')
-  const brand = extractBrand(productTitle)
-
-  try {
-    const res = await fetch('https://api.dedaluslabs.ai/v1/audit', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        brand,
-        retailer,
-        sources: ['goodonyou.eco', 'bcorporation.net', 'fairlabor.org'],
-      }),
-    })
-
-    if (!res.ok) {
-      return { brand_rating: 'unknown', certifications: [], notes: '' }
-    }
-
-    return await res.json()
-  } catch {
-    return { brand_rating: 'unknown', certifications: [], notes: '' }
-  }
-}
-
-// K2-Think reasoning and scoring
-async function fetchIFMScore(input: any): Promise<any> {
-  const apiKey = Deno.env.get('IFM_API_KEY')
-  const endpoint = Deno.env.get('IFM_API_URL')
-
-  // No IFM endpoint - use retailer heuristic.
-  if (!endpoint) return retailerFallback(input)
-
-  const secondhandContext = input.isSecondhand
-    ? 'This item is sold on a secondhand marketplace, which significantly reduces its carbon footprint compared to buying new.'
-    : ''
-
-  const systemPrompt = `You are a sustainable fashion expert. Reason through the product's sustainability factors step by step, then output a final JSON verdict.
-
-Scoring guide:
-- 70-100: Highly sustainable (secondhand, strong ethical brand, certified materials)
-- 40-69: Moderately sustainable
-- 0-39: Low sustainability
-
-After your reasoning, output exactly one JSON object on its own line:
-{"score": <0-100>, "explanation": "<one-sentence summary for a product card>", "reasoning": "<2-3 sentence detail for the product modal>"}`
-
-  const userPrompt = `Product: ${input.title}
-Description: ${input.description}
-Retailer: ${input.retailer}
-${secondhandContext}
-Brand sustainability rating: ${input.brandRating}
-Certifications: ${input.certifications.join(', ') || 'none found'}
-Brand notes: ${input.brandNotes || 'none'}`
-
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey ?? 'dummy'}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: K2_MODEL_ID,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        max_tokens: 2048,
-        temperature: 0.3,
-      }),
-    })
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      console.warn(`[IFM] K2-Think ${res.status}: ${body.slice(0, 200)} - using fallback`)
-      return retailerFallback(input)
-    }
-
-    const data = await res.json()
-    const content = data.choices?.[0]?.message?.content
-
-    if (!content) {
-      console.warn('[IFM] K2-Think response missing content - using fallback')
-      return retailerFallback(input)
-    }
-
-    const parsed = extractTrailingJson(content)
-    return {
-      score: parsed.score,
-      explanation: parsed.explanation,
-      reasoning: parsed.reasoning ?? parsed.explanation,
-    }
-  } catch (err) {
-    console.warn('[IFM] K2-Think call errored - using fallback:', err)
-    return retailerFallback(input)
-  }
-}
-
-function retailerFallback(input: any): any {
-  const score = input.isSecondhand ? 65 : 35
-  return {
-    score,
-    explanation: input.isSecondhand
-      ? 'Secondhand item - estimated sustainability based on reuse.'
-      : 'New retail item - estimated sustainability based on category.',
-    reasoning: 'Live K2-Think scoring unavailable; score estimated from retailer type.',
-  }
-}
-
-function normalizeInputProduct(product: any, productId: string): any {
+function normalizeInputProduct(product: Record<string, unknown>, productId: string): ProductRecord {
   return {
     id: productId,
-    retailer: product.retailer ?? 'unknown',
-    title: product.title ?? 'Untitled',
-    description: product.description ?? null,
-    price: product.price ?? null,
-    currency: product.currency ?? 'USD',
-    image_urls: Array.isArray(product.image_urls) ? product.image_urls : [],
-    product_url: product.product_url ?? '',
-    sustainability_score: product.sustainability_score ?? null,
-    score_explanation: product.score_explanation ?? null,
-    metadata: product.metadata ?? null,
+    retailer: typeof product.retailer === 'string' ? product.retailer : 'unknown',
+    brand: typeof product.brand === 'string' ? product.brand : null,
+    title: typeof product.title === 'string' ? product.title : 'Untitled',
+    description: typeof product.description === 'string' ? product.description : null,
+    price: typeof product.price === 'number' ? product.price : null,
+    currency: typeof product.currency === 'string' ? product.currency : null,
+    image_urls: Array.isArray(product.image_urls) ? product.image_urls.filter((value): value is string => typeof value === 'string') : [],
+    product_url: typeof product.product_url === 'string' ? product.product_url : '',
+    source_search_url: typeof product.source_search_url === 'string' ? product.source_search_url : null,
+    source_domain: typeof product.source_domain === 'string' ? product.source_domain : null,
+    scrape_status: typeof product.scrape_status === 'string' ? product.scrape_status : 'pending',
+    scrape_version: typeof product.scrape_version === 'number' ? product.scrape_version : PRODUCT_SCRAPE_VERSION,
+    scraped_at: typeof product.scraped_at === 'string' ? product.scraped_at : null,
+    sustainability_score: typeof product.sustainability_score === 'number' ? product.sustainability_score : null,
+    score_explanation: typeof product.score_explanation === 'string' ? product.score_explanation : null,
+    score_version: typeof product.score_version === 'number' ? product.score_version : 0,
+    metadata: isRecord(product.metadata) ? product.metadata : null,
   }
 }
 
-function extractTrailingJson(text: string): any {
-  const matches = text.match(/\{[^{}]*"score"[^{}]*\}/g)
-  if (!matches || matches.length === 0) {
-    throw new Error('K2-Think response missing JSON verdict')
-  }
-  return JSON.parse(matches[matches.length - 1])
-}
-
-function extractBrand(title: string): string {
-  return title.split(' ')[0] ?? title
-}
-
-function buildComparison(score: number): string {
-  if (score >= 70) return `saves ~${Math.round(score * 0.3)} kg CO2 vs buying new`
-  if (score >= 40) return `saves ~${Math.round(score * 0.15)} kg CO2 vs buying new`
-  return 'minimal CO2 savings vs buying new'
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function getErrorMessage(error: unknown): string {
