@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { resolveProductLookupUrl } from '../lib/product-links'
 import type { Board, Pin } from '../types/board'
 import type { Product, SustainabilityResult } from '../types/product'
 
