@@ -1,5 +1,6 @@
 import { supabase } from '../integrations/supabase/client'
 import { MOCK_PRODUCTS } from './mockProducts'
+import { filterValidatedListings, normalizeListingPrice } from './listingValidation'
 import type { Board, Pin } from '../types/board'
 import type { Product, SustainabilityResult } from '../types/product'
 import type { Profile, StylePreference } from '../types/profile'
@@ -114,7 +115,7 @@ function normalizeProduct(product: Product): Product {
   return {
     ...product,
     description: product.description ?? null,
-    price: product.price ?? null,
+    price: normalizeListingPrice(product.price),
     currency: product.currency ?? 'USD',
     image_urls: product.image_urls ?? [],
     metadata: product.metadata ?? null,
@@ -450,7 +451,8 @@ export async function getRecommendationsLocal(input: QueryInput): Promise<Produc
     retailer: input.retailer ?? 'all',
   })
 
-  return data.map((product) => normalizeProduct(product))
+  return filterValidatedListings(data, input.search?.trim() ?? '', input.retailer ?? 'all')
+    .map((product) => normalizeProduct(product))
 }
 
 export async function getSustainabilityLocal(product: string | Product): Promise<SustainabilityResult> {

@@ -1,4 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
+import {
+  buildRetailerSearchQuery,
+  filterValidatedListings,
+  normalizeListingCandidate,
+  normalizeListingPrice,
+} from '../../../src/lib/listingValidation.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,6 +21,10 @@ const RETAILERS = [
 ]
 
 const CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
+const PAGE_SIZE = 20
+const CACHE_SCAN_BATCH_SIZE = 100
+
+let cleanupPromise: Promise<void> | null = null
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -27,73 +37,71 @@ Deno.serve(async (req) => {
     if (!query) {
       return new Response(
         JSON.stringify({ error: 'Query parameter is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-      { auth: { persistSession: false } }
+      { auth: { persistSession: false } },
     )
 
     const targets = retailers && retailers.length > 0
-      ? RETAILERS.filter(r => retailers.includes(r.name))
+      ? RETAILERS.filter((retailer) => retailers.includes(retailer.name))
       : RETAILERS
 
-    // Check cache first
-    const cacheThreshold = new Date(Date.now() - CACHE_TTL_MS).toISOString()
-    const { data: cached, error: cacheError } = await supabase
-      .from('products')
-      .select('*')
-      .in('retailer', targets.map(r => r.name))
-      .gte('last_updated', cacheThreshold)
-      .range(page * 20, (page + 1) * 20 - 1)
+    await ensureCacheCleanup(supabase)
 
-    if (!cacheError && cached && cached.length >= 10) {
-      return new Response(JSON.stringify(cached), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    const cacheThreshold = new Date(Date.now() - CACHE_TTL_MS).toISOString()
+    const cachedProducts = await collectValidCachedProducts(supabase, targets.map((retailer) => retailer.name), cacheThreshold, page)
+    const cachedPage = cachedProducts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+    if (cachedPage.length === PAGE_SIZE) {
+      return new Response(JSON.stringify(cachedPage), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Fetch from Tavily
     const tavilyKey = Deno.env.get('TAVILY_API_KEY')
     if (!tavilyKey) {
-      return new Response(
-        JSON.stringify({ error: 'TAVILY_API_KEY not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return new Response(JSON.stringify(cachedPage), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     const results = await Promise.allSettled(
-      targets.map(retailer => fetchRetailer(query, retailer.domain, retailer.name, tavilyKey))
+      targets.map((retailer) => fetchRetailer(query, retailer.domain, retailer.name, tavilyKey)),
     )
 
-    const products = results
-      .filter((r): r is PromiseFulfilledResult<any[]> => r.status === 'fulfilled')
-      .flatMap(r => r.value)
+    const liveProducts = filterValidatedListings(
+      results
+        .filter((result): result is PromiseFulfilledResult<any[]> => result.status === 'fulfilled')
+        .flatMap((result) => result.value),
+      '',
+      null,
+    )
 
-    // Upsert products to cache
-    if (products.length > 0) {
-      const productsToUpsert = products.map(p => ({
-        ...p,
-        last_updated: new Date().toISOString(),
-      }))
-
-      await supabase.from('products').upsert(productsToUpsert)
+    if (liveProducts.length > 0) {
+      await supabase.from('products').upsert(
+        liveProducts.map((product) => ({
+          ...product,
+          last_updated: new Date().toISOString(),
+        })),
+      )
     }
 
-    const pageProducts = products.slice(page * 20, (page + 1) * 20)
+    const pageProducts = filterValidatedListings([...cachedProducts, ...liveProducts], '', null)
+      .slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
     return new Response(JSON.stringify(pageProducts), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
-
   } catch (error) {
     console.error('Error in aggregate-products:', error)
     return new Response(
       JSON.stringify({ error: getErrorMessage(error) }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   }
 })
@@ -109,10 +117,10 @@ async function fetchRetailer(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       api_key: apiKey,
-      query: `${query} site:${domain}`,
+      query: buildRetailerSearchQuery(query, retailerName, domain),
       search_depth: 'basic',
       include_images: true,
-      max_results: 10,
+      max_results: 20,
     }),
   })
 
@@ -121,28 +129,152 @@ async function fetchRetailer(
   }
 
   const data = await res.json()
-  return (data.results ?? []).map((item: any, i: number) => normalizeResult(item, retailerName, i))
+  return (data.results ?? [])
+    .map((item: Record<string, unknown>, index: number) => normalizeResult(item, retailerName, index))
+    .filter((product: any) => product !== null)
 }
 
-function normalizeResult(item: any, retailer: string, index: number): any {
-  const externalId = encodeURIComponent(item.url ?? `${retailer}-${index}`)
-  return {
-    id: `${retailer}:${externalId}`,
+function normalizeResult(item: Record<string, unknown>, retailer: string, index: number): any {
+  const externalId = encodeURIComponent(String(item.url ?? `${retailer}-${index}`))
+  return normalizeListingCandidate(
+    {
+      id: `${retailer}:${externalId}`,
+      retailer,
+      title: typeof item.title === 'string' ? item.title : 'Untitled',
+      description: typeof item.content === 'string' ? item.content : '',
+      price: extractPrice(typeof item.content === 'string' ? item.content : ''),
+      currency: 'USD',
+      image_urls: Array.isArray(item.images)
+        ? item.images.filter((image): image is string => typeof image === 'string')
+        : [],
+      product_url: typeof item.url === 'string' ? item.url : '',
+      sustainability_score: null,
+      score_explanation: null,
+    },
     retailer,
-    title: item.title ?? 'Untitled',
-    description: item.content ?? '',
-    price: extractPrice(item.content ?? ''),
-    currency: 'USD',
-    image_urls: item.images ?? [],
-    product_url: item.url ?? '',
-    sustainability_score: null,
-    score_explanation: null,
+  )
+}
+
+async function collectValidCachedProducts(
+  supabase: ReturnType<typeof createClient>,
+  retailers: string[],
+  cacheThreshold: string,
+  page: number,
+): Promise<any[]> {
+  const targetCount = (page + 1) * PAGE_SIZE
+  const validProducts: any[] = []
+  const seenKeys = new Set<string>()
+  let offset = 0
+
+  while (validProducts.length < targetCount) {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .in('retailer', retailers)
+      .gte('last_updated', cacheThreshold)
+      .order('last_updated', { ascending: false })
+      .range(offset, offset + CACHE_SCAN_BATCH_SIZE - 1)
+
+    if (error) {
+      throw error
+    }
+
+    if (!data?.length) {
+      break
+    }
+
+    for (const product of data) {
+      const normalized = normalizeListingCandidate(product)
+      if (!normalized) {
+        continue
+      }
+
+      const key = normalized.id ?? normalized.product_url
+      if (seenKeys.has(key)) {
+        continue
+      }
+
+      seenKeys.add(key)
+      validProducts.push(normalized)
+
+      if (validProducts.length >= targetCount) {
+        break
+      }
+    }
+
+    if (data.length < CACHE_SCAN_BATCH_SIZE) {
+      break
+    }
+
+    offset += data.length
+  }
+
+  return validProducts
+}
+
+async function ensureCacheCleanup(supabase: ReturnType<typeof createClient>): Promise<void> {
+  if (!cleanupPromise) {
+    cleanupPromise = cleanupInvalidCachedProducts(supabase).catch((error) => {
+      console.warn('[aggregate-products] cache cleanup failed:', error)
+    })
+  }
+
+  await cleanupPromise
+}
+
+async function cleanupInvalidCachedProducts(supabase: ReturnType<typeof createClient>): Promise<void> {
+  const invalidIds: string[] = []
+  let offset = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('id', { ascending: true })
+      .range(offset, offset + CACHE_SCAN_BATCH_SIZE - 1)
+
+    if (error) {
+      throw error
+    }
+
+    if (!data?.length) {
+      break
+    }
+
+    for (const product of data) {
+      if (!normalizeListingCandidate(product)) {
+        invalidIds.push(product.id)
+      }
+    }
+
+    if (data.length < CACHE_SCAN_BATCH_SIZE) {
+      break
+    }
+
+    offset += data.length
+  }
+
+  for (const chunk of chunked(invalidIds, 100)) {
+    const { error } = await supabase.from('products').delete().in('id', chunk)
+    if (error) {
+      throw error
+    }
   }
 }
 
-function extractPrice(text: string): number {
-  const match = text.match(/\$(\d+(?:\.\d{2})?)/);
-  return match ? parseFloat(match[1]) : 0
+function chunked<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = []
+
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size))
+  }
+
+  return chunks
+}
+
+function extractPrice(text: string): number | null {
+  const match = text.match(/\$(\d+(?:\.\d{2})?)/)
+  return normalizeListingPrice(match ? parseFloat(match[1]) : null)
 }
 
 function getErrorMessage(error: unknown): string {

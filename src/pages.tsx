@@ -192,7 +192,7 @@ export function AuthPage(): JSX.Element {
             >
               <p>Pinterest-style feed with sustainability scoring.</p>
               <p>Pin items to boards, track your carbon savings.</p>
-              <p>Works offline — mock data always available.</p>
+              <p>Feed only shows verified live listing links.</p>
             </div>
           </div>
         </div>
@@ -390,6 +390,10 @@ export function FeedPage(): JSX.Element {
       ) : feedQuery.isLoading ? (
         <div className="panel p-6 text-sm" style={{ color: 'var(--forest-sage)' }}>
           Loading...
+        </div>
+      ) : products.length === 0 ? (
+        <div className="panel p-6 text-sm" style={{ color: 'var(--forest-sage)' }}>
+          No verified live listings matched this search yet. Try another keyword or switch retailers.
         </div>
       ) : (
         <>
