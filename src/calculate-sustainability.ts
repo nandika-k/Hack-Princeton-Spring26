@@ -10,16 +10,11 @@ export async function calculateSustainability(productId: string): Promise<Sustai
 
   // Return cached score if already computed.
   if (product.sustainability_score !== null && product.score_explanation !== null) {
-    const score = product.sustainability_score
-    const text = (product.title + ' ' + (product.description ?? '')).toLowerCase()
     return {
-      score,
+      score: product.sustainability_score,
       explanation: product.score_explanation,
       reasoning: product.score_explanation,
-      comparison: buildComparison(score),
-      carbon_kg: carbonKg(score),
-      fabric_type: extractFabric(text),
-      condition: extractCondition(product.description ?? ''),
+      comparison: buildComparison(product.sustainability_score),
     }
   }
 
@@ -46,16 +41,11 @@ export async function calculateSustainability(productId: string): Promise<Sustai
     },
   })
 
-  const score = ifmResult.score
-  const text = (product.title + ' ' + (product.description ?? '')).toLowerCase()
   return {
-    score,
+    score: ifmResult.score,
     explanation: ifmResult.explanation,
     reasoning: ifmResult.reasoning,
-    comparison: buildComparison(score),
-    carbon_kg: carbonKg(score),
-    fabric_type: extractFabric(text),
-    condition: extractCondition(product.description ?? ''),
+    comparison: buildComparison(ifmResult.score),
   }
 }
 
@@ -216,27 +206,4 @@ function buildComparison(score: number): string {
   if (score >= 70) return `saves ~${Math.round(score * 0.3)} kg CO2 vs buying new`
   if (score >= 40) return `saves ~${Math.round(score * 0.15)} kg CO2 vs buying new`
   return 'minimal CO2 savings vs buying new'
-}
-
-function carbonKg(score: number): number {
-  if (score >= 70) return Math.round(score * 0.3)
-  if (score >= 40) return Math.round(score * 0.15)
-  return 2
-}
-
-function extractFabric(text: string): string | null {
-  const fabrics = ['cashmere', 'wool', 'silk', 'linen', 'cotton', 'denim', 'polyester', 'viscose', 'rayon', 'nylon', 'leather', 'suede', 'velvet', 'corduroy', 'satin', 'chiffon']
-  for (const f of fabrics) {
-    if (text.includes(f)) return f.charAt(0).toUpperCase() + f.slice(1)
-  }
-  return null
-}
-
-function extractCondition(text: string): string | null {
-  const t = text.toLowerCase()
-  if (t.includes('new with tags') || t.includes('nwt')) return 'New w/ Tags'
-  if (t.includes('excellent') || t.includes('mint')) return 'Excellent'
-  if (t.includes('good') || t.includes('great')) return 'Good'
-  if (t.includes('fair') || t.includes('worn') || t.includes('used')) return 'Fair'
-  return 'Good'
 }

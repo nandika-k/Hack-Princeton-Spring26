@@ -40,13 +40,11 @@ export function Popup(): JSX.Element {
     try {
       const s = await send({ kind: 'GET_STATUS' })
       const status = s.kind === 'STATUS' ? s.status : state.status
-
       const item = await getActiveTabItem()
       if (!item) {
         setState((p) => ({ ...p, status, item: null, breakdown: null, loading: false }))
         return
       }
-
       const scored = await send({ kind: 'SCORE_ITEM', item })
       const breakdown = scored.kind === 'SCORED' ? scored.breakdown : null
       setState({ status, item, breakdown, loading: false, error: null })
@@ -57,9 +55,7 @@ export function Popup(): JSX.Element {
 
   async function toggle(): Promise<void> {
     const res = await send({ kind: 'SET_ENABLED', enabled: !state.status.enabled })
-    if (res.kind === 'STATUS') {
-      setState((p) => ({ ...p, status: res.status }))
-    }
+    if (res.kind === 'STATUS') setState((p) => ({ ...p, status: res.status }))
   }
 
   async function scoreNow(): Promise<void> {
@@ -75,24 +71,24 @@ export function Popup(): JSX.Element {
 
   return (
     <div>
-      <div className="titlebar">
-        <span>EcoThread</span>
-        <span>_ □ ×</span>
+      {/* Topbar */}
+      <div className="ext-topbar">
+        <img src="/logo.png" alt="EcoThread" />
+        <span className="ext-logo">EcoThread</span>
       </div>
-      <div className="pixel-bar" />
 
       <div className="p-3 space-y-3">
         <ToggleRow enabled={state.status.enabled} onToggle={toggle} />
 
-        {!state.status.enabled && (
-          <div className="panel p-3 text-xs">
-            Scanner is off. Flip the switch to check items on shopping sites for sustainability info.
+        {state.status.enabled && !state.item && !state.loading && (
+          <div className="ext-panel p-3" style={{ fontSize: 11, color: 'var(--forest-sage)', letterSpacing: '0.05em' }}>
+            Visit a product page on Depop, Vinted, Zara, Shein, H&amp;M, ASOS, or any supported shop to see a sustainability score.
           </div>
         )}
 
-        {state.status.enabled && !state.item && !state.loading && (
-          <div className="panel p-3 text-xs">
-            Visit a product page on Depop, Vinted, Zara, Shein, H&amp;M, ASOS, or any supported shop to see a score.
+        {!state.status.enabled && (
+          <div className="ext-panel p-3" style={{ fontSize: 11, color: 'var(--forest-sage)', letterSpacing: '0.05em' }}>
+            Scanner is off. Flip the switch to check items on shopping sites.
           </div>
         )}
 
@@ -106,7 +102,9 @@ export function Popup(): JSX.Element {
         )}
 
         {state.error && (
-          <div className="panel p-2 text-xs text-red">Error: {state.error}</div>
+          <div className="ext-panel p-2" style={{ fontSize: 11, color: 'var(--red)' }}>
+            Error: {state.error}
+          </div>
         )}
 
         <Footer />
@@ -117,12 +115,14 @@ export function Popup(): JSX.Element {
 
 function ToggleRow({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }): JSX.Element {
   return (
-    <div className="panel p-2 flex items-center justify-between">
+    <div className="ext-panel p-3 flex items-center justify-between">
       <div>
-        <div className="text-xs uppercase text-text-silver">Scanner</div>
-        <div className="text-sm">{enabled ? 'ON — scanning pages' : 'OFF — idle'}</div>
+        <div className="ext-label" style={{ marginBottom: 4 }}>Scanner</div>
+        <div style={{ fontSize: 12, color: 'var(--deep-navy)' }}>
+          {enabled ? 'ON — scanning pages' : 'OFF — idle'}
+        </div>
       </div>
-      <button type="button" className="btn" onClick={onToggle}>
+      <button type="button" className={`ext-btn${enabled ? '' : ' ext-btn-primary'}`} onClick={onToggle}>
         {enabled ? 'Turn Off' : 'Turn On'}
       </button>
     </div>
@@ -141,22 +141,34 @@ function ItemCard({
   onScore: () => void
 }): JSX.Element {
   return (
-    <div className="panel p-3 space-y-3">
+    <div className="ext-panel p-3 space-y-3">
       <div className="flex gap-3">
         {item.image_url && (
-          <img src={item.image_url} alt="" className="w-16 h-16 object-cover border border-border-dim" />
+          <img
+            src={item.image_url}
+            alt=""
+            style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+          />
         )}
-        <div className="flex-1 min-w-0">
-          <div className="text-xs text-text-silver truncate">{item.retailer}</div>
-          <div className="text-sm font-bold truncate">{item.title}</div>
-          {item.brand && <div className="text-xs text-text-silver truncate">by {item.brand}</div>}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="ext-label" style={{ marginBottom: 2 }}>{item.retailer}</div>
+          <div style={{ fontSize: 12, fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {item.title}
+          </div>
+          {item.brand && (
+            <div style={{ fontSize: 11, color: 'var(--forest-sage)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              by {item.brand}
+            </div>
+          )}
         </div>
       </div>
 
-      {loading && <div className="text-xs">Scoring…</div>}
+      {loading && (
+        <div style={{ fontSize: 11, color: 'var(--forest-sage)', letterSpacing: '0.1em' }}>Scoring…</div>
+      )}
 
       {!loading && !breakdown && (
-        <button type="button" className="btn w-full" onClick={onScore}>
+        <button type="button" className="ext-btn ext-btn-primary" style={{ width: '100%' }} onClick={onScore}>
           Check Sustainability
         </button>
       )}
@@ -168,62 +180,58 @@ function ItemCard({
 
 function Breakdown({ data }: { data: SustainabilityBreakdown }): JSX.Element {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Score header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div className={`score-dial grade-${data.grade}`}>{data.score}</div>
-        <div className="flex-1">
-          <div className="text-xs uppercase text-text-silver">Sustainability</div>
-          <div className="text-sm">Grade {data.grade} · {labelFor(data.fast_fashion_risk)}</div>
-          <div className="text-xs text-text-silver">
+        <div>
+          <div className="ext-label" style={{ marginBottom: 2 }}>Sustainability</div>
+          <div style={{ fontSize: 12, color: 'var(--deep-navy)' }}>
+            Grade {data.grade} · {labelFor(data.fast_fashion_risk)}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--forest-sage)', marginTop: 2 }}>
             {data.source === 'live' ? 'Live score' : 'Offline estimate'}
           </div>
         </div>
       </div>
 
-      <div className="bevel-out p-2">
-        <div className="row">
-          <span className="label">Price</span>
+      {/* Data rows */}
+      <div className="ext-panel p-3">
+        <div className="ext-row">
+          <span className="ext-row-label">Price</span>
           <span>{data.price_display}</span>
         </div>
-        <div className="row">
-          <span className="label">Made in</span>
+        <div className="ext-row">
+          <span className="ext-row-label">Made in</span>
           <span>{data.origin}</span>
         </div>
-        <div className="row">
-          <span className="label">Fiber</span>
-          <span>
-            {data.fiber.material} · <em>{data.fiber.quality}</em>
-          </span>
+        <div className="ext-row">
+          <span className="ext-row-label">Fiber</span>
+          <span>{data.fiber.material} · <em>{data.fiber.quality}</em></span>
         </div>
-        <div className="row">
-          <span className="label">Carbon</span>
-          <span>
-            {data.carbon.kg_co2e !== null ? `${data.carbon.kg_co2e} kg CO₂e` : '—'}
-          </span>
+        <div className="ext-row">
+          <span className="ext-row-label">Carbon</span>
+          <span>{data.carbon.kg_co2e !== null ? `${data.carbon.kg_co2e} kg CO₂e` : '—'}</span>
         </div>
-        <div className="row">
-          <span className="label">Fast fashion</span>
+        <div className="ext-row">
+          <span className="ext-row-label">Fast fashion</span>
           <span>{riskLabel(data.fast_fashion_risk)}</span>
         </div>
       </div>
 
-      <div className="panel p-2 text-xs space-y-2">
-        <div>
-          <div className="label text-text-silver uppercase">Fiber notes</div>
-          <div>{data.fiber.notes}</div>
-        </div>
-        <div>
-          <div className="label text-text-silver uppercase">Carbon footprint</div>
-          <div>{data.carbon.comparison}</div>
-        </div>
-        <div>
-          <div className="label text-text-silver uppercase">Environmental notes</div>
-          <div>{data.environmental_notes}</div>
-        </div>
-        <div>
-          <div className="label text-text-silver uppercase">Summary</div>
-          <div>{data.explanation}</div>
-        </div>
+      {/* Notes */}
+      <div className="ext-panel p-3" style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11 }}>
+        {[
+          ['Fiber notes', data.fiber.notes],
+          ['Carbon footprint', data.carbon.comparison],
+          ['Environmental notes', data.environmental_notes],
+          ['Summary', data.explanation],
+        ].map(([label, text]) => (
+          <div key={label}>
+            <div className="ext-label" style={{ marginBottom: 2 }}>{label}</div>
+            <div style={{ color: 'var(--deep-navy)', lineHeight: 1.5 }}>{text}</div>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -241,8 +249,7 @@ function riskLabel(risk: 'low' | 'medium' | 'high'): string {
 
 function Footer(): JSX.Element {
   return (
-    <div className="text-center text-xs text-text-silver pt-1">
-      <div className="pixel-bar mb-2" />
+    <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--forest-sage)', letterSpacing: '0.2em', paddingTop: 4, borderTop: '0.5px solid var(--sage-mist)' }}>
       EcoThread · HackPrinceton 2026
     </div>
   )

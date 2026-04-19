@@ -76,15 +76,11 @@ Deno.serve(async (req) => {
 
     // Return cached score if exists.
     if (product.sustainability_score !== null && product.score_explanation !== null) {
-      const score = product.sustainability_score
       return new Response(JSON.stringify({
-        score,
+        score: product.sustainability_score,
         explanation: product.score_explanation,
         reasoning: product.score_explanation,
-        comparison: buildComparison(score),
-        carbon_kg: carbonKg(score),
-        fabric_type: extractFabric(product.title + ' ' + (product.description ?? '')),
-        condition: extractCondition(product.description ?? ''),
+        comparison: buildComparison(product.sustainability_score),
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
@@ -113,15 +109,11 @@ Deno.serve(async (req) => {
       })
       .eq('id', productId)
 
-    const score = ifmResult.score
     return new Response(JSON.stringify({
-      score,
+      score: ifmResult.score,
       explanation: ifmResult.explanation,
       reasoning: ifmResult.reasoning,
-      comparison: buildComparison(score),
-      carbon_kg: carbonKg(score),
-      fabric_type: ifmResult.fabric_type ?? extractFabric(product.title + ' ' + (product.description ?? '')),
-      condition: ifmResult.condition ?? extractCondition(product.description ?? ''),
+      comparison: buildComparison(ifmResult.score),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
@@ -184,7 +176,7 @@ Scoring guide:
 - 0-39: Low sustainability
 
 After your reasoning, output exactly one JSON object on its own line:
-{"score": <0-100>, "explanation": "<one-sentence summary>", "reasoning": "<2-3 sentence detail>", "fabric_type": "<primary fabric e.g. denim, cotton, wool, polyester, or null if unknown>", "condition": "<Excellent|Good|Fair|New or null if unknown>"}`
+{"score": <0-100>, "explanation": "<one-sentence summary for a product card>", "reasoning": "<2-3 sentence detail for the product modal>"}`
 
   const userPrompt = `Product: ${input.title}
 Description: ${input.description}
@@ -243,11 +235,9 @@ function retailerFallback(input: any): any {
   return {
     score,
     explanation: input.isSecondhand
-      ? 'Secondhand item — estimated sustainability based on reuse.'
-      : 'New retail item — estimated sustainability based on category.',
+      ? 'Secondhand item - estimated sustainability based on reuse.'
+      : 'New retail item - estimated sustainability based on category.',
     reasoning: 'Live K2-Think scoring unavailable; score estimated from retailer type.',
-    fabric_type: extractFabric(input.title + ' ' + input.description),
-    condition: extractCondition(input.description),
   }
 }
 
@@ -283,30 +273,6 @@ function buildComparison(score: number): string {
   if (score >= 70) return `saves ~${Math.round(score * 0.3)} kg CO2 vs buying new`
   if (score >= 40) return `saves ~${Math.round(score * 0.15)} kg CO2 vs buying new`
   return 'minimal CO2 savings vs buying new'
-}
-
-function carbonKg(score: number): number {
-  if (score >= 70) return Math.round(score * 0.3)
-  if (score >= 40) return Math.round(score * 0.15)
-  return 2
-}
-
-function extractFabric(text: string): string | null {
-  const t = text.toLowerCase()
-  const fabrics = ['cashmere', 'wool', 'silk', 'linen', 'cotton', 'denim', 'polyester', 'viscose', 'rayon', 'nylon', 'spandex', 'leather', 'suede', 'velvet', 'corduroy', 'satin', 'chiffon']
-  for (const f of fabrics) {
-    if (t.includes(f)) return f.charAt(0).toUpperCase() + f.slice(1)
-  }
-  return null
-}
-
-function extractCondition(text: string): string | null {
-  const t = text.toLowerCase()
-  if (t.includes('new with tags') || t.includes('nwt')) return 'New w/ Tags'
-  if (t.includes('excellent') || t.includes('mint')) return 'Excellent'
-  if (t.includes('good') || t.includes('great')) return 'Good'
-  if (t.includes('fair') || t.includes('worn') || t.includes('used')) return 'Fair'
-  return 'Good'
 }
 
 function getErrorMessage(error: unknown): string {
