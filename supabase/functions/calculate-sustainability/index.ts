@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
-import { PRODUCT_SCRAPE_VERSION, ProductRecord } from '../_shared/product-scrape.ts'
+import { isProductListingVisible, PRODUCT_SCRAPE_VERSION, ProductRecord } from '../_shared/product-scrape.ts'
 import {
   buildComparison,
   canReuseCachedScore,
@@ -73,12 +73,20 @@ Deno.serve(async (req) => {
       )
     }
 
+    if (!isProductListingVisible(product)) {
+      return new Response(
+        JSON.stringify({ error: 'Product is not a valid listing' }),
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
     if (canReuseCachedScore(product, PRODUCT_SCRAPE_VERSION)) {
       const score = product.sustainability_score ?? 0
+      const explanation = product.score_explanation ?? 'Cached sustainability score.'
       return new Response(JSON.stringify({
         score,
-        explanation: product.score_explanation,
-        reasoning: product.score_explanation,
+        explanation,
+        reasoning: explanation,
         comparison: buildComparison(score),
         carbon_kg: carbonKg(score),
         fabric_type: extractFabric(`${product.title} ${product.description ?? ''}`),
@@ -115,10 +123,9 @@ Deno.serve(async (req) => {
     if (updateError) {
       throw updateError
     }
-
     const score = ifmResult.score
     return new Response(JSON.stringify({
-      score,
+      score: ifmResult.score,
       explanation: ifmResult.explanation,
       reasoning: ifmResult.reasoning,
       comparison: buildComparison(score),

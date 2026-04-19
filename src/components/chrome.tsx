@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
 import {
-  Link,
   NavLink,
   Navigate,
   Outlet,
@@ -10,12 +9,7 @@ import {
 } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import {
-  getAccountSnapshot,
-  getStylePreference,
-  listBoards,
-} from '../lib/rewear-store'
-import { Component as GlowBackground } from './ui/background-components'
+import { getAccountSnapshot, getStylePreference } from '../lib/rewear-store'
 
 export function AuthGate(): JSX.Element {
   const location = useLocation()
@@ -30,9 +24,9 @@ export function AuthGate(): JSX.Element {
     return (
       <div className="app-shell">
         <div className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-6">
-          <div className="panel max-w-lg p-6 text-sm">
-            <div className="titlebar mb-4">EcoThread</div>
-            <p style={{ color: 'var(--forest-sage)' }}>Loading wardrobe...</p>
+          <div className="panel max-w-lg p-6 text-sm text-text-dark">
+            <div className="titlebar mb-4">rewear.exe</div>
+            <p>Booting wardrobe shell...</p>
           </div>
         </div>
       </div>
@@ -40,7 +34,7 @@ export function AuthGate(): JSX.Element {
   }
 
   if (!user) {
-    return <Navigate replace state={{ from: location }} to="/auth" />
+    return <Navigate to="/auth" replace state={{ from: location }} />
   }
 
   if (preferenceQuery.isError) {
@@ -48,7 +42,7 @@ export function AuthGate(): JSX.Element {
       <div className="app-shell">
         <div className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-6">
           <div className="panel max-w-xl p-6 text-sm text-red">
-            <div className="titlebar mb-4">EcoThread</div>
+            <div className="titlebar mb-4">rewear.exe</div>
             <p>
               {preferenceQuery.error instanceof Error
                 ? preferenceQuery.error.message
@@ -62,11 +56,11 @@ export function AuthGate(): JSX.Element {
 
   const hasPreference = Boolean(preferenceQuery.data)
   if (!hasPreference && location.pathname !== '/profile-setup') {
-    return <Navigate replace to="/profile-setup" />
+    return <Navigate to="/profile-setup" replace />
   }
 
   if (hasPreference && location.pathname === '/profile-setup') {
-    return <Navigate replace to="/feed" />
+    return <Navigate to="/feed" replace />
   }
 
   return <ShellLayout />
@@ -76,29 +70,32 @@ function ShellLayout(): JSX.Element {
   const location = useLocation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const searchValue =
-    location.pathname === '/feed' ? (searchParams.get('q') ?? '') : ''
+  const searchValue = location.pathname === '/feed' ? searchParams.get('q') ?? '' : ''
 
   function handleSearchChange(next: string): void {
     const params = new URLSearchParams()
-    if (next.trim()) params.set('q', next.trim())
+    if (next.trim()) {
+      params.set('q', next.trim())
+    }
     const retailer = searchParams.get('retailer')
-    if (retailer) params.set('retailer', retailer)
+    if (retailer) {
+      params.set('retailer', retailer)
+    }
     const search = params.toString()
-    navigate({ pathname: '/feed', search: search ? `?${search}` : '' })
+    navigate({
+      pathname: '/feed',
+      search: search ? `?${search}` : '',
+    })
   }
 
   return (
-    <GlowBackground>
-      <Navigation onSearchChange={handleSearchChange} searchValue={searchValue} />
-      <div className="shell-body flex-1">
-        <Sidebar />
-        <main className="feed-main">
-          <Outlet />
-        </main>
-      </div>
+    <div className="app-shell">
+      <Navigation searchValue={searchValue} onSearchChange={handleSearchChange} />
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 pb-10 pt-5 sm:px-6 lg:px-8">
+        <Outlet />
+      </main>
       <StatusBar />
-    </GlowBackground>
+    </div>
   )
 }
 
@@ -110,40 +107,36 @@ function Navigation({
   onSearchChange: (next: string) => void
 }): JSX.Element {
   return (
-    <header className="reworn-topbar">
-      <div className="reworn-topbar-inner">
-        <div className="reworn-logo flex items-center gap-3">
-          <img src="/src/images/EcoThread_Logo.png" alt="EcoThread" style={{ height: 32, width: 'auto' }} />
-          EcoThread
+    <header className="border-b border-border-dim bg-bg-2/95 backdrop-blur-sm">
+      <div className="mx-auto max-w-7xl px-4 pt-3 sm:px-6 lg:px-8">
+        <div className="titlebar">
+          <span className="flex items-center gap-2">
+            <span className="pixel-gem" />
+            rewear.exe
+          </span>
+          <span className="titlebar-controls">
+            <button type="button">_</button>
+            <button type="button">[]</button>
+            <button type="button">x</button>
+          </span>
         </div>
-        <div className="flex items-center gap-4">
-          <nav className="reworn-nav">
-            <NavLink
-              className={({ isActive }) =>
-                isActive ? 'nav-pill nav-pill-active' : 'nav-pill'
-              }
-              to="/feed"
-            >
-              discover
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                isActive ? 'nav-pill nav-pill-active' : 'nav-pill'
-              }
-              to="/boards"
-            >
-              saved
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                isActive ? 'nav-pill nav-pill-active' : 'nav-pill'
-              }
-              to="/profile"
-            >
-              my.closet
-            </NavLink>
-          </nav>
-          <SearchBar onChange={onSearchChange} value={searchValue} />
+        <div className="pixel-bar" />
+        <div className="flex flex-col gap-3 border-x border-border-dim bg-bg-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="wordmark">[] [] []</div>
+            <nav className="flex flex-wrap gap-3 text-[11px] uppercase tracking-[0.25em]">
+              <NavLink className={({ isActive }) => navLinkClass(isActive)} to="/feed">
+                Feed
+              </NavLink>
+              <NavLink className={({ isActive }) => navLinkClass(isActive)} to="/boards">
+                Boards
+              </NavLink>
+              <NavLink className={({ isActive }) => navLinkClass(isActive)} to="/profile">
+                Profile
+              </NavLink>
+            </nav>
+          </div>
+          <SearchBar value={searchValue} onChange={onSearchChange} />
         </div>
       </div>
     </header>
@@ -164,84 +157,33 @@ function SearchBar({
   }, [value])
 
   useEffect(() => {
-    const id = window.setTimeout(() => {
-      if (draft !== value) onChange(draft)
+    const timeoutId = window.setTimeout(() => {
+      if (draft !== value) {
+        onChange(draft)
+      }
     }, 300)
-    return () => window.clearTimeout(id)
+    return () => window.clearTimeout(timeoutId)
   }, [draft, onChange, value])
 
   return (
     <form
       className="search-shell"
-      onSubmit={(e) => {
-        e.preventDefault()
+      onSubmit={(event) => {
+        event.preventDefault()
         onChange(draft)
       }}
     >
       <input
         aria-label="Search feed"
         className="search-input"
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder="search..."
+        onChange={(event) => setDraft(event.target.value)}
+        placeholder="search the archive..."
         value={draft}
       />
       <button className="search-button" type="submit">
-        ↵
+        O-
       </button>
     </form>
-  )
-}
-
-const BOARD_ICONS = ['+', '❊', '♦', '◆', '✦', '·']
-
-function Sidebar(): JSX.Element {
-  const { user } = useAuth()
-  const preferenceQuery = useQuery({
-    queryKey: ['style-preference', user?.id],
-    queryFn: () => getStylePreference(user!.id),
-    enabled: Boolean(user),
-  })
-  const boardsQuery = useQuery({
-    queryKey: ['boards', user?.id],
-    queryFn: () => listBoards(user!.id),
-    enabled: Boolean(user),
-  })
-
-  const styleTags = preferenceQuery.data?.style_tags ?? []
-  const boards = boardsQuery.data ?? []
-
-  return (
-    <aside className="reworn-sidebar">
-      <div className="sidebar-section">
-        <span className="sidebar-label">MY STYLE TAGS</span>
-        <div className="sidebar-tags">
-          {styleTags.map((tag) => (
-            <span className="style-tag" key={tag}>
-              {tag}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div className="sidebar-section">
-        <span className="sidebar-label">MY BOARDS</span>
-        <div className="sidebar-boards">
-          {boards.map((board, i) => (
-            <Link
-              className="sidebar-board-item"
-              key={board.id}
-              to={`/boards/${board.id}`}
-            >
-              <span className="board-icon">
-                {BOARD_ICONS[i % BOARD_ICONS.length]}
-              </span>
-              <span className="board-meta">
-                <span className="board-name-text">{board.name}</span>
-              </span>
-            </Link>
-          ))}
-        </div>
-      </div>
-    </aside>
   )
 }
 
@@ -265,4 +207,8 @@ function StatusBar(): JSX.Element {
       </span>
     </footer>
   )
+}
+
+function navLinkClass(isActive: boolean): string {
+  return isActive ? 'nav-link nav-link-active' : 'nav-link'
 }
