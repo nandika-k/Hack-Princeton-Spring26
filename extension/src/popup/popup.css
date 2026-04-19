@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --deep-navy:     #042C53;
+  --steel-blue:    #8DB9DC;
+  --sky-mist:      #BCD4E9;
+  --midnight-blue: #0C447C;
+  --forest-sage:   #48655E;
+  --seafoam:       #DDE9EA;
+  --sage-mist:     #CCDBD1;
+  --frost-white:   #F0F4F8;
+  --green:         #1a8040;
+  --green-pale:    #d8f0e4;
+  --amber:         #906000;
+  --amber-pale:    #faecc0;
+  --red:           #a02020;
+}
+
+html, body, #root {
+  width: 360px;
+  min-height: 420px;
+  margin: 0;
+  padding: 0;
+  font-family: 'Share Tech Mono', monospace;
+  background: var(--frost-white);
+  color: var(--deep-navy);
+}
+
+.ext-topbar {
+  background: var(--deep-navy);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ext-topbar img {
+  height: 24px;
+  width: auto;
+}
+
+.ext-logo {
+  font-size: 14px;
+  letter-spacing: 5px;
+  color: var(--frost-white);
+}
+
+.ext-panel {
+  background: white;
+  border: 0.5px solid var(--sage-mist);
+  border-radius: 8px;
+}
+
+.ext-label {
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--forest-sage);
+}
+
+.ext-btn {
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--sage-mist);
+  background: white;
+  color: var(--forest-sage);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.ext-btn:hover {
+  border-color: var(--steel-blue);
+  color: var(--deep-navy);
+}
+
+.ext-btn-primary {
+  background: var(--deep-navy);
+  border-color: var(--deep-navy);
+  color: var(--frost-white);
+}
+
+.ext-btn-primary:hover {
+  background: var(--midnight-blue);
+  border-color: var(--midnight-blue);
+  color: var(--frost-white);
+}
+
+.score-dial {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: white;
+}
+
+.grade-A { background: var(--green); }
+.grade-B { background: #5a9050; }
+.grade-C { background: var(--amber); }
+.grade-D { background: #b05020; }
+.grade-F { background: var(--red); }
+
+.ext-row {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 6px;
+  padding: 5px 0;
+  border-bottom: 0.5px solid var(--sage-mist);
+  font-size: 11px;
+}
+
+.ext-row:last-child { border-bottom: none; }
+
+.ext-row-label {
+  color: var(--forest-sage);
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 2px;
+  padding-top: 1px;
+}
