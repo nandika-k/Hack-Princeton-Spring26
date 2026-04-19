@@ -1,0 +1,96 @@
+{
+  "manifest_version": 3,
+  "name": "ReWear — Sustainable Fashion Scanner",
+  "short_name": "ReWear",
+  "version": "0.1.0",
+  "description": "Check sustainability scores on any shopping site. See where your clothes are made, what they're made of, and their carbon footprint.",
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_title": "ReWear — Sustainability Scanner"
+  },
+  "background": {
+    "service_worker": "service-worker-loader.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "assets/content-script.ts-De5R3FA7.js"
+      ],
+      "matches": [
+        "https://*.depop.com/*",
+        "https://*.vinted.com/*",
+        "https://*.vinted.co.uk/*",
+        "https://*.vinted.fr/*",
+        "https://*.vinted.de/*",
+        "https://*.vinted.it/*",
+        "https://*.vinted.es/*",
+        "https://*.vinted.nl/*",
+        "https://*.vinted.pl/*",
+        "https://*.ebay.com/*",
+        "https://*.thredup.com/*",
+        "https://*.vestiairecollective.com/*",
+        "https://*.whatnot.com/*",
+        "https://*.zara.com/*",
+        "https://*.hm.com/*",
+        "https://*.shein.com/*",
+        "https://*.asos.com/*",
+        "https://*.urbanoutfitters.com/*",
+        "https://*.nordstrom.com/*",
+        "https://*.revolve.com/*",
+        "https://*.amazon.com/*",
+        "https://*.shopify.com/*",
+        "https://*.macys.com/*",
+        "https://*.barbour.com/*",
+        "https://*.quince.com/*",
+        "https://*.ae.com/*"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "https://*.ae.com/*",
+        "https://*.amazon.com/*",
+        "https://*.asos.com/*",
+        "https://*.barbour.com/*",
+        "https://*.depop.com/*",
+        "https://*.ebay.com/*",
+        "https://*.hm.com/*",
+        "https://*.macys.com/*",
+        "https://*.nordstrom.com/*",
+        "https://*.quince.com/*",
+        "https://*.revolve.com/*",
+        "https://*.shein.com/*",
+        "https://*.shopify.com/*",
+        "https://*.thredup.com/*",
+        "https://*.urbanoutfitters.com/*",
+        "https://*.vestiairecollective.com/*",
+        "https://*.vinted.co.uk/*",
+        "https://*.vinted.com/*",
+        "https://*.vinted.de/*",
+        "https://*.vinted.es/*",
+        "https://*.vinted.fr/*",
+        "https://*.vinted.it/*",
+        "https://*.vinted.nl/*",
+        "https://*.vinted.pl/*",
+        "https://*.whatnot.com/*",
+        "https://*.zara.com/*"
+      ],
+      "resources": [
+        "assets/content-script.ts-De5R3FA7.js",
+        "assets/content-script.ts-De5R3FA7.js.map"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
+}
