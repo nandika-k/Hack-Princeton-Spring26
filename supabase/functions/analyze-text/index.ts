@@ -1,4 +1,4 @@
-// Photon AI — text-based brand + fabric sustainability scorer
+// EcoThread — text-based brand + fabric sustainability scorer
 // User texts brand + fabric composition; returns a sustainability score.
 // No image required. Works via iMessage / SMS through Spectrum-TS / Photon Pro.
 //

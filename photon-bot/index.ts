@@ -1,4 +1,4 @@
-// Photon AI — iMessage bot via Spectrum-TS
+// EcoThread — iMessage bot via Spectrum-TS
 // Receives clothing tag photos over iMessage, calls the analyze-tag
 // Supabase edge function (K2-Think v2 vision + Dedalus), replies with score.
 //
@@ -158,7 +158,7 @@ for await (const [space, message] of app.messages) {
     if (body === 'help' || body === 'hi' || body === 'hello' || body === '') {
       await space.send(
         text(
-          '👋 Photon AI — Sustainability Scorer\n\n' +
+          '👋 EcoThread\n\n' +
           'Text your brand + fabric composition and I\'ll score its sustainability.\n\n' +
           'Examples:\n' +
           '  • Patagonia, 100% recycled polyester\n' +

@@ -1,4 +1,4 @@
-// Photon AI — in-store tag scanner via iMessage/SMS
+// EcoThread — in-store tag scanner via iMessage/SMS
 // User texts a photo of a clothing tag to a Twilio number.
 // K2-Think v2 vision: extract brand/materials + score sustainability in one call.
 // Dedalus brand audit runs in parallel to enrich certifications.
